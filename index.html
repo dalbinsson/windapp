@@ -143,8 +143,8 @@ const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short'
 const hourOnly = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', hour12: false });
 const localHour = (t) => parseInt(hourOnly.format(new Date(t)), 10) % 24;
 
-// ---- data sources: the browser calls the weather APIs directly ----
-const DEFAULT_LOC = { lat: 57.325, lon: 12.105, name: 'Åsa coast' }; // coast just outside Åsa
+// ---- data sources: the browser calls the weather APIs directly ---- 57.327439121088375, 12.14630319020541
+const DEFAULT_LOC = { lat: 57.327, lon: 12.146, name: 'Åsa coast' }; // coast just outside Åsa
 let LOC = recall('loc', DEFAULT_LOC);
 if (!LOC || !Number.isFinite(LOC.lat) || !Number.isFinite(LOC.lon)) LOC = DEFAULT_LOC;
 let LAT = LOC.lat, LON = LOC.lon;
