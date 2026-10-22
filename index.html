@@ -26,7 +26,20 @@
   .chip.off { opacity:.5; }
   .chip.off i { background:var(--mute); }
   .chip.off span { text-decoration:line-through; }
-  svg { width:100%; height:auto; display:block; }
+  svg { width:100%; height:auto; display:block; touch-action:pan-y; }
+  .readout { min-height:86px; margin-bottom:4px; }
+  .readout .when { font-weight:600; margin-bottom:4px; }
+  .readout .when span { color:var(--mute); font-weight:400; }
+  .readout .items { display:flex; flex-wrap:wrap; gap:4px 16px; }
+  .readout .it { display:inline-flex; align-items:baseline; gap:6px; font-size:14px; font-variant-numeric:tabular-nums; }
+  .readout .it i { width:10px; height:10px; border-radius:50%; background:var(--c); display:inline-block; align-self:center; }
+  .readout .it b { font-size:17px; }
+  .readout .it small { color:var(--mute); font-size:12px; }
+  details.loc { margin-bottom:8px; }
+  details.loc summary { cursor:pointer; color:var(--mute); font-size:14px; min-height:36px; display:flex; align-items:center; }
+  .locform { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  input[type=text] { flex:1 1 200px; min-width:0; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; }
+  .msg { font-size:12px; color:var(--mute); margin-top:6px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:center; padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; line-height:1.25; }
   th { color:var(--mute); font-weight:600; font-size:13px; }
@@ -43,12 +56,14 @@
     main { padding:12px 8px; }
     .card { padding:10px 8px; border-radius:10px; }
     h1, .sub { padding-left:6px; }
+    .chip { padding:6px 11px; font-size:13px; }
+    .readout .items { gap:2px 12px; }
   }
 </style>
 </head>
 <body>
 <main>
-  <h1>Åsa coast wind</h1>
+  <h1 id="title">Åsa coast wind</h1>
   <div class="sub" id="sub">Loading…</div>
 
   <div class="card">
@@ -77,7 +92,18 @@
         <button id="bMs">m/s</button>
       </span>
     </div>
+    <details class="loc" id="loc">
+      <summary id="locSummary">Location</summary>
+      <div class="locform">
+        <input type="text" id="locInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="lat, lon  e.g. 57.325, 12.105" aria-label="Coordinates">
+        <button id="locSet">Set</button>
+        <button id="locGps">My location</button>
+        <button id="locReset">Åsa</button>
+      </div>
+      <div class="msg" id="locMsg">Tip: long-press a spot on the sea in Google Maps or Apple Maps to copy its coordinates. DMI, MET Nordic, SMHI and MET Norway cover the Nordic area only.</div>
+    </details>
     <div class="legend" id="legend"></div>
+    <div class="readout" id="readout" aria-live="polite"></div>
     <svg id="chart" viewBox="0 0 860 340" role="img" aria-label="Wind forecast chart"></svg>
     <div class="err" id="errs"></div>
   </div>
@@ -102,7 +128,7 @@ const $ = (id) => document.getElementById(id);
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 function recall(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
 let DATA = null;
-let unit = recall('unit', 'kn');
+let unit = recall('unit2', 'ms'); // 'unit2': older saved unit choices are ignored, so the default is m/s
 let horizon = recall('horizon', 72);
 let step = recall('step', 3);
 let hidden = new Set(recall('hiddenSources', []));
@@ -118,7 +144,12 @@ const hourOnly = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit
 const localHour = (t) => parseInt(hourOnly.format(new Date(t)), 10) % 24;
 
 // ---- data sources: the browser calls the weather APIs directly ----
-const LAT = 57.325, LON = 12.105; // coast just outside Åsa — edit to taste
+const DEFAULT_LOC = { lat: 57.325, lon: 12.105, name: 'Åsa coast' }; // coast just outside Åsa
+let LOC = recall('loc', DEFAULT_LOC);
+if (!LOC || !Number.isFinite(LOC.lat) || !Number.isFinite(LOC.lon)) LOC = DEFAULT_LOC;
+let LAT = LOC.lat, LON = LOC.lon;
+const SHORT = { 'DMI HARMONIE 2 km': 'DMI', 'MET Nordic 1 km': 'Nordic', 'ECMWF IFS 0.25°': 'ECMWF', 'SMHI SNOW': 'SMHI', 'MET Norway': 'MET NO' };
+const coordText = (lat, lon) => `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
 const num = (v) => (typeof v === 'number' ? v : null);
 async function getJson(url) {
   const r = await fetch(url);
@@ -168,15 +199,20 @@ async function buildData() {
   return { lat: LAT, lon: LON, fetchedAt: new Date().toISOString(), sources, errors };
 }
 
+let loadId = 0;
 async function load() {
+  const my = ++loadId;
+  let data;
   try {
-    DATA = await buildData();
-    if (!Object.keys(DATA.sources).length) throw new Error('no sources');
+    data = await buildData();
+    if (!Object.keys(data.sources).length) throw new Error('no sources');
   } catch (e) {
-    $('sub').textContent = 'No forecast sources reachable. Check your connection.';
+    if (my === loadId) $('sub').textContent = 'No forecast sources reachable. Check your connection and the coordinates.';
     return;
   }
-  $('sub').textContent = `${DATA.lat.toFixed(3)}°N ${DATA.lon.toFixed(3)}°E · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind`;
+  if (my !== loadId) return; // the location changed while this request was running
+  DATA = data;
+  $('sub').textContent = `${coordText(DATA.lat, DATA.lon)} · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind`;
   const errs = Object.entries(DATA.errors || {}).map(([k, v]) => `${k}: ${v}`);
   $('errs').textContent = errs.length ? 'Unavailable → ' + errs.join(' | ') : '';
   render();
@@ -215,7 +251,7 @@ function render() {
     `<button class="chip${hidden.has(n) ? ' off' : ''}" data-n="${n}" style="--c:${colorOf(n)}" aria-pressed="${!hidden.has(n)}"><i></i><span>${n}</span></button>`).join('');
   const svg = $('chart');
   const values = names.flatMap((n) => W[n].flatMap((p) => [p.speed, p.gust])).filter((v) => v != null);
-  if (!names.length || !values.length) { svg.innerHTML = ''; $('tbl').innerHTML = ''; return; }
+  if (!names.length || !values.length) { svg.innerHTML = ''; $('tbl').innerHTML = ''; $('readout').innerHTML = ''; VIEW = null; return; }
 
   // 1 SVG unit = 1 screen pixel, so text and lines keep their size on a phone
   const w = Math.max(300, Math.round(svg.getBoundingClientRect().width || 860));
@@ -224,12 +260,13 @@ function render() {
   const L = narrow ? 32 : 38, R = 10, T = 12, B = 32, h = narrow ? 320 : 340;
   svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   const t0 = Date.now() - 3600e3, t1 = Date.now() + horizon * 3600e3;
-  const vmax = Math.ceil(Math.max(...values) / 5) * 5 + 5;
+  const mx = Math.max(...values);
+  const gridStep = unit === 'kn' ? (mx <= 30 ? 5 : 10) : (mx <= 14 ? 2 : 5);
+  const vmax = Math.ceil(mx / gridStep) * gridStep + gridStep;
   const x = (t) => L + (t - t0) / (t1 - t0) * (w - L - R);
   const y = (v) => h - B - v / vmax * (h - T - B);
 
   let g = '';
-  const gridStep = unit === 'kn' ? 5 : 2;
   for (let v = 0; v <= vmax; v += gridStep) {
     g += `<line x1="${L}" x2="${w - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity="0.12"/>`;
     g += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="${fs}" fill="currentColor" opacity="0.75">${v}</text>`;
@@ -267,16 +304,53 @@ function render() {
       g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${lw}" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
   }
-  svg.innerHTML = g;
+  svg.innerHTML = g + '<g id="hover" pointer-events="none"></g>';
   svg.style.color = getComputedStyle(document.body).color;
+  VIEW = { w, h, L, R, T, B, t0, t1, x, y, W, names, lw };
+  showAt(selT);
 
   renderTable(W, names);
 }
 
+// ---- hover / touch readout: values of every shown forecast at the nearest time ----
+let VIEW = null, selT = null;
+function nearest(pts, t, tol) {
+  let best = null;
+  for (const p of pts) if (p.speed != null && Math.abs(p.t - t) <= tol && (!best || Math.abs(p.t - t) < Math.abs(best.t - t))) best = p;
+  return best;
+}
+function showAt(t) {
+  if (!VIEW) return;
+  const { x, y, T, h, B, W, names, lw, t0, t1 } = VIEW;
+  if (t == null || t < t0 || t > t1) t = Math.round(Date.now() / 3600e3) * 3600e3;
+  selT = t;
+  let g = `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${h - B}" stroke="currentColor" stroke-width="1.5" opacity="0.65"/>`;
+  let items = '';
+  for (const n of names) {
+    const p = nearest(W[n], t, 90 * 60e3);
+    const c = colorOf(n);
+    if (!p) { items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <small>–</small></span>`; continue; }
+    g += `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.speed).toFixed(1)}" r="${lw + 1.5}" fill="${c}" style="stroke:var(--card)" stroke-width="2"/>`;
+    const arrow = p.dir == null ? '' : `<span class="arrow" style="transform:rotate(${p.dir + 180}deg)">↑</span> `;
+    const range = p.gust == null ? '' : p.lull != null ? `${fmt(p.lull)}–${fmt(p.gust)}` : `gust ${fmt(p.gust)}`;
+    items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <b>${arrow}${fmt(p.speed)}</b><small>${range}</small></span>`;
+  }
+  const isNow = Math.abs(t - Date.now()) < 30 * 60e3;
+  $('hover').innerHTML = g;
+  $('readout').innerHTML = `<div class="when">${hourFmt.format(new Date(t))} <span>${isNow ? '(now) ' : ''}· mean, lull–gust, ${unit === 'kn' ? 'kn' : 'm/s'}</span></div><div class="items">${items}</div>`;
+}
+function tFromEvent(e) {
+  const r = $('chart').getBoundingClientRect();
+  const px = (e.clientX - r.left) * (VIEW.w / r.width);
+  const f = Math.min(1, Math.max(0, (px - VIEW.L) / (VIEW.w - VIEW.L - VIEW.R)));
+  return Math.round((VIEW.t0 + f * (VIEW.t1 - VIEW.t0)) / 3600e3) * 3600e3;
+}
+for (const ev of ['pointermove', 'pointerdown']) $('chart').addEventListener(ev, (e) => { if (VIEW) showAt(tFromEvent(e)); });
+$('chart').addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && VIEW) showAt(null); });
+
 function renderTable(W, names) {
   const tol = step >= 3 ? 90 * 60e3 : 30 * 60e3; // 3-hourly models sit between hourly rows
   const unitLabel = unit === 'kn' ? 'kn' : 'm/s';
-  const SHORT = { 'DMI HARMONIE 2 km': 'DMI', 'MET Nordic 1 km': 'Nordic', 'ECMWF IFS 0.25°': 'ECMWF', 'SMHI SNOW': 'SMHI', 'MET Norway': 'MET NO' };
   let html = `<tr><th>${unitLabel}</th>` + names.map((n) => `<th style="color:${colorOf(n)}">${SHORT[n] || n}</th>`).join('') + '</tr>';
   const start = Math.ceil((Date.now() - 1800e3) / 3600e3) * 3600e3;
   for (let t = start; t <= Date.now() + horizon * 3600e3; t += step * 3600e3) {
@@ -299,8 +373,47 @@ function renderTable(W, names) {
 function setBtn(a, b, first) { a.classList.toggle('on', first); b.classList.toggle('on', !first); }
 $('selHorizon').onchange = (e) => { horizon = +e.target.value; store('horizon', horizon); render(); };
 $('selStep').onchange = (e) => { step = +e.target.value; store('step', step); render(); };
-$('bKn').onclick = () => { unit = 'kn'; store('unit', unit); setBtn($('bKn'), $('bMs'), true); render(); };
-$('bMs').onclick = () => { unit = 'ms'; store('unit', unit); setBtn($('bKn'), $('bMs'), false); render(); };
+$('bKn').onclick = () => { unit = 'kn'; store('unit2', unit); setBtn($('bKn'), $('bMs'), true); render(); };
+$('bMs').onclick = () => { unit = 'ms'; store('unit2', unit); setBtn($('bKn'), $('bMs'), false); render(); };
+
+// ---- location ----
+function parseCoords(s) {
+  const m = (s || '').match(/-?\d+(?:[.,]\d+)?/g);
+  if (!m || m.length !== 2) return null;
+  const [lat, lon] = m.map((v) => parseFloat(v.replace(',', '.')));
+  return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : null;
+}
+function updateLocUi() {
+  $('title').textContent = `${LOC.name} wind`;
+  $('locSummary').textContent = `Location: ${LOC.name} (${LOC.lat.toFixed(3)}, ${LOC.lon.toFixed(3)})`;
+  $('locInput').value = `${LOC.lat}, ${LOC.lon}`;
+}
+function setLocation(lat, lon, name) {
+  LOC = { lat, lon, name }; LAT = lat; LON = lon; store('loc', LOC);
+  DATA = null; VIEW = null; selT = null;
+  $('chart').innerHTML = ''; $('tbl').innerHTML = ''; $('readout').innerHTML = ''; $('errs').textContent = '';
+  $('sub').textContent = 'Loading…';
+  updateLocUi();
+  load();
+}
+function applyInput() {
+  const c = parseCoords($('locInput').value);
+  if (!c) { $('locMsg').textContent = 'Enter latitude and longitude, for example 57.325, 12.105'; return; }
+  $('locMsg').textContent = '';
+  setLocation(c.lat, c.lon, Math.abs(c.lat - DEFAULT_LOC.lat) < 1e-6 && Math.abs(c.lon - DEFAULT_LOC.lon) < 1e-6 ? DEFAULT_LOC.name : 'Custom location');
+}
+$('locSet').onclick = applyInput;
+$('locInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyInput(); });
+$('locReset').onclick = () => { $('locMsg').textContent = ''; setLocation(DEFAULT_LOC.lat, DEFAULT_LOC.lon, DEFAULT_LOC.name); };
+$('locGps').onclick = () => {
+  if (!navigator.geolocation) { $('locMsg').textContent = 'This browser cannot share your position. Type coordinates instead.'; return; }
+  $('locMsg').textContent = 'Asking for your position…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { $('locMsg').textContent = ''; setLocation(+pos.coords.latitude.toFixed(4), +pos.coords.longitude.toFixed(4), 'My location'); },
+    () => { $('locMsg').textContent = 'Position not available here. Browsers often allow it only on https pages. Type coordinates instead.'; },
+    { timeout: 10000 });
+};
+updateLocUi();
 setBtn($('bKn'), $('bMs'), unit === 'kn');
 $('selHorizon').value = String(horizon);
 $('selStep').value = String(step);
