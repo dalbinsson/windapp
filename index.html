@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Åsa Wind</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#14181f; --mute:#667085; --card:#fff; --line:#e3e6eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --fg:#e8ebf0; --mute:#8b94a3; --card:#171b22; --line:#262c36; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--mute); font-size:13px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:14px; }
+  .row { display:flex; gap:10px 14px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  label { font-size:13px; color:var(--mute); display:inline-flex; align-items:center; gap:6px; }
+  select, button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; cursor:pointer; }
+  button.on { border-color:var(--fg); font-weight:600; }
+  .seg { display:inline-flex; gap:6px; }
+  .legend { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+  .chip { display:inline-flex; align-items:center; gap:8px; font-size:14px; padding:8px 14px; border-radius:999px; }
+  .chip i { width:16px; height:4px; border-radius:2px; display:inline-block; background:var(--c); }
+  .chip.off { opacity:.5; }
+  .chip.off i { background:var(--mute); }
+  .chip.off span { text-decoration:line-through; }
+  svg { width:100%; height:auto; display:block; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:center; padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; line-height:1.25; }
+  th { color:var(--mute); font-weight:600; font-size:13px; }
+  th:first-child, td:first-child { text-align:left; position:sticky; left:0; background:var(--card); padding-left:2px; }
+  td.t b { display:block; font-size:15px; }
+  td.t small { color:var(--mute); font-size:12px; }
+  td .v { font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
+  td .r { color:var(--mute); font-size:12px; font-variant-numeric:tabular-nums; }
+  td .none { color:var(--mute); }
+  .arrow { display:inline-block; font-size:15px; }
+  .err { color:#c0392b; font-size:13px; }
+  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  @media (max-width: 560px) {
+    main { padding:12px 8px; }
+    .card { padding:10px 8px; border-radius:10px; }
+    h1, .sub { padding-left:6px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Åsa coast wind</h1>
+  <div class="sub" id="sub">Loading…</div>
+
+  <div class="card">
+    <div class="row">
+      <label>Horizon
+        <select id="selHorizon">
+          <option value="24">24 h</option>
+          <option value="48">48 h</option>
+          <option value="72">3 days</option>
+          <option value="120">5 days</option>
+          <option value="168">7 days</option>
+          <option value="240">10 days</option>
+        </select>
+      </label>
+      <label>Table step
+        <select id="selStep">
+          <option value="1">1 h</option>
+          <option value="3">3 h</option>
+          <option value="6">6 h</option>
+          <option value="12">12 h</option>
+        </select>
+      </label>
+      <span style="flex:1"></span>
+      <span class="seg">
+        <button id="bKn" class="on">kn</button>
+        <button id="bMs">m/s</button>
+      </span>
+    </div>
+    <div class="legend" id="legend"></div>
+    <svg id="chart" viewBox="0 0 860 340" role="img" aria-label="Wind forecast chart"></svg>
+    <div class="err" id="errs"></div>
+  </div>
+
+  <div class="card scroll">
+    <table id="tbl"></table>
+  </div>
+</main>
+
+<script>
+const COLORS = {
+  'DMI HARMONIE 2 km': '#2a7de1',
+  'MET Nordic 1 km': '#e8590c',
+  'ECMWF IFS 0.25°': '#9c36b5',
+  'SMHI SNOW': '#2f9e44',
+  'MET Norway': '#0c8599',
+};
+const TZ = 'Europe/Stockholm';
+const $ = (id) => document.getElementById(id);
+
+// ---- settings (remembered in the browser) ----
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function recall(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+let DATA = null;
+let unit = recall('unit', 'kn');
+let horizon = recall('horizon', 72);
+let step = recall('step', 3);
+let hidden = new Set(recall('hiddenSources', []));
+const colorOf = (n) => COLORS[n] || '#888';
+
+const conv = (v) => v == null ? null : (unit === 'kn' ? v * 1.94384 : v);
+const fmt = (v) => v == null ? '–' : v.toFixed(unit === 'kn' ? 0 : 1);
+const hourFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const timeFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const fetchedFmt =new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short', hour: '2-digit', minute: '2-digit' });
+const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short', day: 'numeric' });
+const hourOnly = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', hour12: false });
+const localHour = (t) => parseInt(hourOnly.format(new Date(t)), 10) % 24;
+
+// ---- data sources: the browser calls the weather APIs directly ----
+const LAT = 57.325, LON = 12.105; // coast just outside Åsa — edit to taste
+const num = (v) => (typeof v === 'number' ? v : null);
+async function getJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+// One request per Open-Meteo model, so one bad model id cannot take down the others.
+async function omModel(id, label) {
+  const j = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+    `&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&models=${id}` +
+    `&wind_speed_unit=ms&timezone=UTC&forecast_days=10`);
+  const h = j.hourly;
+  const pick = (name) => h[`${name}_${id}`] || h[name] || [];
+  const speed = pick('wind_speed_10m');
+  if (!speed.length || speed.every((x) => x == null)) throw new Error('no data');
+  return { [label]: { time: h.time.map((t) => t + 'Z'), speed, gust: pick('wind_gusts_10m'), dir: pick('wind_direction_10m') } };
+}
+async function smhi() {
+  const j = await getJson(`https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1/geotype/point/` +
+    `lon/${LON.toFixed(4)}/lat/${LAT.toFixed(4)}/data.json?parameters=wind_speed,wind_speed_of_gust,wind_from_direction`);
+  const ts = j.timeSeries || [];
+  return { 'SMHI SNOW': { time: ts.map((e) => e.time), speed: ts.map((e) => num(e.data.wind_speed)),
+    gust: ts.map((e) => num(e.data.wind_speed_of_gust)), dir: ts.map((e) => num(e.data.wind_from_direction)) } };
+}
+async function metno() {
+  const j = await getJson(`https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${LAT.toFixed(4)}&lon=${LON.toFixed(4)}`);
+  const ts = j.properties.timeseries, d = (e) => e.data.instant.details;
+  return { 'MET Norway': { time: ts.map((e) => e.time), speed: ts.map((e) => num(d(e).wind_speed)),
+    gust: ts.map((e) => num(d(e).wind_speed_of_gust)), dir: ts.map((e) => num(d(e).wind_from_direction)),
+    // Only MET Norway publishes a low-side wind value: the 10th percentile of its ensemble. Used as the lull.
+    lull: ts.map((e) => num(d(e).wind_speed_percentile_10)) } };
+}
+async function buildData() {
+  const jobs = [
+    ['DMI HARMONIE', () => omModel('dmi_harmonie_arome_europe', 'DMI HARMONIE 2 km')],
+    ['MET Nordic', () => omModel('metno_nordic', 'MET Nordic 1 km')],
+    ['ECMWF IFS', () => omModel('ecmwf_ifs025', 'ECMWF IFS 0.25°')],
+    ['SMHI', smhi],
+    ['MET Norway', metno],
+  ];
+  const res = await Promise.allSettled(jobs.map(([, f]) => f()));
+  const sources = {}, errors = {};
+  res.forEach((r, i) => {
+    if (r.status === 'fulfilled') Object.assign(sources, r.value);
+    else errors[jobs[i][0]] = String((r.reason && r.reason.message) || r.reason);
+  });
+  return { lat: LAT, lon: LON, fetchedAt: new Date().toISOString(), sources, errors };
+}
+
+async function load() {
+  try {
+    DATA = await buildData();
+    if (!Object.keys(DATA.sources).length) throw new Error('no sources');
+  } catch (e) {
+    $('sub').textContent = 'No forecast sources reachable. Check your connection.';
+    return;
+  }
+  $('sub').textContent = `${DATA.lat.toFixed(3)}°N ${DATA.lon.toFixed(3)}°E · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind`;
+  const errs = Object.entries(DATA.errors || {}).map(([k, v]) => `${k}: ${v}`);
+  $('errs').textContent = errs.length ? 'Unavailable → ' + errs.join(' | ') : '';
+  render();
+}
+
+function seriesWindow() {
+  const now = Date.now();
+  const out = {};
+  for (const n of Object.keys(DATA.sources)) {
+    const s = DATA.sources[n];
+    out[n] = s.time.map((t, i) => ({
+      t: new Date(t).getTime(),
+      speed: conv(s.speed[i]), gust: conv(s.gust[i]), dir: s.dir[i],
+      lull: s.lull ? conv(s.lull[i]) : null,
+    })).filter((p) => p.t >= now - 3600e3 && p.t <= now + horizon * 3600e3);
+  }
+  return out;
+}
+
+// Split a series into runs where `ok(point)` holds, so gaps (a model that has ended) break the line.
+function runs(pts, ok) {
+  const out = []; let cur = [];
+  for (const p of pts) { if (ok(p)) cur.push(p); else { if (cur.length) out.push(cur); cur = []; } }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+function render() {
+  if (!DATA) return;
+  $('selHorizon').value = String(horizon);
+  $('selStep').value = String(step);
+  const W = seriesWindow();
+  const allNames = Object.keys(W);
+  const names = allNames.filter((n) => !hidden.has(n));
+  $('legend').innerHTML = allNames.map((n) =>
+    `<button class="chip${hidden.has(n) ? ' off' : ''}" data-n="${n}" style="--c:${colorOf(n)}" aria-pressed="${!hidden.has(n)}"><i></i><span>${n}</span></button>`).join('');
+  const svg = $('chart');
+  const values = names.flatMap((n) => W[n].flatMap((p) => [p.speed, p.gust])).filter((v) => v != null);
+  if (!names.length || !values.length) { svg.innerHTML = ''; $('tbl').innerHTML = ''; return; }
+
+  // 1 SVG unit = 1 screen pixel, so text and lines keep their size on a phone
+  const w = Math.max(300, Math.round(svg.getBoundingClientRect().width || 860));
+  const narrow = w < 560;
+  const fs = narrow ? 13 : 12, lw = narrow ? 3 : 2.5;
+  const L = narrow ? 32 : 38, R = 10, T = 12, B = 32, h = narrow ? 320 : 340;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  const t0 = Date.now() - 3600e3, t1 = Date.now() + horizon * 3600e3;
+  const vmax = Math.ceil(Math.max(...values) / 5) * 5 + 5;
+  const x = (t) => L + (t - t0) / (t1 - t0) * (w - L - R);
+  const y = (v) => h - B - v / vmax * (h - T - B);
+
+  let g = '';
+  const gridStep = unit === 'kn' ? 5 : 2;
+  for (let v = 0; v <= vmax; v += gridStep) {
+    g += `<line x1="${L}" x2="${w - R}" y1="${y(v)}" y2="${y(v)}" stroke="currentColor" opacity="0.12"/>`;
+    g += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="${fs}" fill="currentColor" opacity="0.75">${v}</text>`;
+  }
+  // time axis: label spacing follows horizon and width; day boundaries are stronger
+  let every = horizon <= 48 ? 6 : horizon <= 96 ? 12 : 24;
+  const minPx = narrow ? 62 : 70; // room for a label like "tors 29"
+  while ((w - L - R) / (horizon / every) < (every >= 24 ? minPx : 34)) every *= 2;
+  const firstHour = Math.ceil(t0 / 3600e3) * 3600e3;
+  let dayIdx = 0;
+  for (let t = firstHour; t <= t1; t += 3600e3) {
+    const hr = localHour(t);
+    if (hr === 0) dayIdx++;
+    const show = every >= 24 ? (hr === 0 && (dayIdx - 1) % (every / 24) === 0) : hr % every === 0;
+    if (!show) continue;
+    g += `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${h - B}" stroke="currentColor" opacity="${hr === 0 ? 0.3 : 0.1}"/>`;
+    const label = (hr === 0 || every >= 24) ? dayFmt.format(new Date(t)) : String(hr).padStart(2, '0');
+    g += `<text x="${x(t)}" y="${h - 10}" text-anchor="middle" font-size="${fs}" fill="currentColor" opacity="0.75">${label}</text>`;
+  }
+  const nowT = Date.now();
+  g += `<line x1="${x(nowT)}" x2="${x(nowT)}" y1="${T}" y2="${h - B}" stroke="currentColor" stroke-dasharray="3 3" opacity="0.5"/>`;
+
+  // gust bands first (behind), then mean lines
+  for (const n of names) {
+    for (const seg of runs(W[n], (p) => p.speed != null && p.gust != null)) {
+      const top = seg.map((p) => `${x(p.t).toFixed(1)},${y(Math.max(p.gust, p.speed)).toFixed(1)}`);
+      // lower edge: the lull where the source has one, otherwise the mean line
+      const bot = seg.slice().reverse().map((p) => `${x(p.t).toFixed(1)},${y(p.lull != null ? Math.min(p.lull, p.speed) : p.speed).toFixed(1)}`);
+      g += `<polygon points="${top.concat(bot).join(' ')}" fill="${colorOf(n)}" fill-opacity="0.16" stroke="none"/>`;
+    }
+  }
+  for (const n of names) {
+    for (const seg of runs(W[n], (p) => p.speed != null)) {
+      const d = seg.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.speed).toFixed(1)}`).join('');
+      g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${lw}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+  }
+  svg.innerHTML = g;
+  svg.style.color = getComputedStyle(document.body).color;
+
+  renderTable(W, names);
+}
+
+function renderTable(W, names) {
+  const tol = step >= 3 ? 90 * 60e3 : 30 * 60e3; // 3-hourly models sit between hourly rows
+  const unitLabel = unit === 'kn' ? 'kn' : 'm/s';
+  const SHORT = { 'DMI HARMONIE 2 km': 'DMI', 'MET Nordic 1 km': 'Nordic', 'ECMWF IFS 0.25°': 'ECMWF', 'SMHI SNOW': 'SMHI', 'MET Norway': 'MET NO' };
+  let html = `<tr><th>${unitLabel}</th>` + names.map((n) => `<th style="color:${colorOf(n)}">${SHORT[n] || n}</th>`).join('') + '</tr>';
+  const start = Math.ceil((Date.now() - 1800e3) / 3600e3) * 3600e3;
+  for (let t = start; t <= Date.now() + horizon * 3600e3; t += step * 3600e3) {
+    let cells = '', any = false;
+    for (const n of names) {
+      let best = null;
+      for (const p of W[n]) if (p.speed != null && Math.abs(p.t - t) <= tol && (!best || Math.abs(p.t - t) < Math.abs(best.t - t))) best = p;
+      if (!best) { cells += '<td><span class="none">–</span></td>'; continue; }
+      any = true;
+      const arrow = best.dir == null ? '' : `<span class="arrow" style="transform:rotate(${best.dir + 180}deg)">↑</span> `;
+      const range = best.lull != null ? `${fmt(best.lull)}–${fmt(best.gust)}` : fmt(best.gust);
+      cells += `<td><div class="v">${arrow}${fmt(best.speed)}</div><div class="r">${range}</div></td>`;
+    }
+    if (any) html += `<tr><td class="t"><b>${timeFmt.format(new Date(t))}</b><small>${dayFmt.format(new Date(t))}</small></td>${cells}</tr>`;
+  }
+  $('tbl').innerHTML = html;
+}
+
+// ---- controls ----
+function setBtn(a, b, first) { a.classList.toggle('on', first); b.classList.toggle('on', !first); }
+$('selHorizon').onchange = (e) => { horizon = +e.target.value; store('horizon', horizon); render(); };
+$('selStep').onchange = (e) => { step = +e.target.value; store('step', step); render(); };
+$('bKn').onclick = () => { unit = 'kn'; store('unit', unit); setBtn($('bKn'), $('bMs'), true); render(); };
+$('bMs').onclick = () => { unit = 'ms'; store('unit', unit); setBtn($('bKn'), $('bMs'), false); render(); };
+setBtn($('bKn'), $('bMs'), unit === 'kn');
+$('selHorizon').value = String(horizon);
+$('selStep').value = String(step);
+
+$('legend').onclick = (e) => {
+  const b = e.target.closest('.chip');
+  if (!b || !DATA) return;
+  const n = b.dataset.n;
+  if (hidden.has(n)) hidden.delete(n);
+  else if (Object.keys(DATA.sources).length - hidden.size > 1) hidden.add(n); // keep at least one visible
+  store('hiddenSources', [...hidden]);
+  render();
+};
+
+load();
+setInterval(load, 15 * 60 * 1000);
+// redraw when the phone rotates or the window resizes, so the chart keeps pixel-sized text
+let lastW = 0, resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { const w = $('chart').getBoundingClientRect().width; if (Math.abs(w - lastW) > 1) { lastW = w; render(); } }, 150);
+});
+</script>
+</body>
+</html>
