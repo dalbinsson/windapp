@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Åsa Wind</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
   :root { --bg:#f6f7f9; --fg:#14181f; --mute:#667085; --card:#fff; --line:#e3e6eb; }
   @media (prefers-color-scheme: dark) {
@@ -40,6 +41,20 @@
   .locform { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
   input[type=text] { flex:1 1 200px; min-width:0; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; }
   .msg { font-size:12px; color:var(--mute); margin-top:6px; }
+  [hidden] { display:none !important; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .topbar .seg button { min-width:56px; }
+  .mapwrap { position:relative; height:min(66vh, 600px); min-height:340px; border-radius:10px; overflow:hidden; border:1px solid var(--line); background:#1a1d24; }
+  #map { position:absolute; inset:0; }
+  .mapwrap canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:450; transition:opacity .15s; }
+  .maprow { display:flex; gap:10px; align-items:center; margin-top:10px; }
+  input[type=range] { flex:1; min-width:0; min-height:36px; accent-color:var(--fg); }
+  #mapPlay { min-width:48px; }
+  .when2 { font-weight:600; font-size:15px; margin-top:8px; }
+  .legendbar { position:relative; height:12px; border-radius:6px; margin:14px 4px 22px; }
+  .legendbar span { position:absolute; top:16px; transform:translateX(-50%); font-size:12px; color:var(--mute); font-variant-numeric:tabular-nums; }
+  #mapReadout { min-height:40px; margin-top:6px; font-size:15px; }
+  #mapReadout button { margin-left:8px; min-height:34px; padding:4px 10px; font-size:14px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:center; padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; line-height:1.25; }
   th { color:var(--mute); font-weight:600; font-size:13px; }
@@ -65,7 +80,12 @@
 <main>
   <h1 id="title">Åsa coast wind</h1>
   <div class="sub" id="sub">Loading…</div>
+  <div class="topbar">
+    <span class="seg"><button id="tabF" class="on">Forecast</button><button id="tabM">Map</button></span>
+    <span class="seg"><button id="bKn">kn</button><button id="bMs" class="on">m/s</button></span>
+  </div>
 
+  <div id="viewForecast">
   <div class="card">
     <div class="row">
       <label>Horizon
@@ -86,11 +106,6 @@
           <option value="12">12 h</option>
         </select>
       </label>
-      <span style="flex:1"></span>
-      <span class="seg">
-        <button id="bKn" class="on">kn</button>
-        <button id="bMs">m/s</button>
-      </span>
     </div>
     <details class="loc" id="loc">
       <summary id="locSummary">Location</summary>
@@ -111,8 +126,63 @@
   <div class="card scroll">
     <table id="tbl"></table>
   </div>
+  </div>
+
+  <div id="viewMap" hidden>
+    <div class="card">
+      <div class="row">
+        <label>Model
+          <select id="mapModel">
+            <option value="dmi">DMI HARMONIE 2 km</option>
+            <option value="nordic">MET Nordic 1 km</option>
+            <option value="ecmwf">ECMWF IFS 0.25°</option>
+          </select>
+        </label>
+        <label>Area
+          <select id="mapSpan">
+            <option value="20">20 km</option>
+            <option value="40">40 km</option>
+            <option value="100">100 km</option>
+            <option value="250">250 km</option>
+          </select>
+        </label>
+        <label>Map
+          <select id="mapBase">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
+        <button id="mapZoomIn" title="Zoom to your location">Close up</button>
+        <button id="mapZoomOut" title="Show the whole wind area">Whole area</button>
+      </div>
+      <details class="loc" id="keyBox">
+        <summary id="keySummary">Dark map key</summary>
+        <div class="locform">
+          <input type="text" id="keyInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your CARTO key" aria-label="CARTO basemap key">
+          <button id="keySave">Save</button>
+          <button id="keyClear">Clear</button>
+        </div>
+        <div class="msg" id="keyMsg"></div>
+      </details>
+      <div class="mapwrap" id="mapwrap">
+        <div id="map"></div>
+        <canvas id="heat"></canvas>
+        <canvas id="parts"></canvas>
+      </div>
+      <div class="legendbar" id="mapLegend"></div>
+      <div class="maprow">
+        <button id="mapPlay" aria-label="Play">▶</button>
+        <input type="range" id="mapTime" min="0" max="0" value="0" aria-label="Forecast time">
+      </div>
+      <div class="when2" id="mapWhen"></div>
+      <div id="mapReadout">Tap the map to read the wind at a point.</div>
+      <div class="msg" id="mapStatus"></div>
+      <div class="msg" id="mapNote"></div>
+    </div>
+  </div>
 </main>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
 const COLORS = {
   'DMI HARMONIE 2 km': '#2a7de1',
@@ -143,10 +213,11 @@ const dayFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short'
 const hourOnly = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', hour12: false });
 const localHour = (t) => parseInt(hourOnly.format(new Date(t)), 10) % 24;
 
-// ---- data sources: the browser calls the weather APIs directly ---- 57.327439121088375, 12.14630319020541
-const DEFAULT_LOC = { lat: 57.327, lon: 12.146, name: 'Åsa coast' }; // coast just outside Åsa
+// ---- data sources: the browser calls the weather APIs directly ----
+const DEFAULT_LOC = { lat: 57.322, lon: 12.142, name: 'Åsa' };
 let LOC = recall('loc', DEFAULT_LOC);
 if (!LOC || !Number.isFinite(LOC.lat) || !Number.isFinite(LOC.lon)) LOC = DEFAULT_LOC;
+if (LOC.lat === 57.325 && LOC.lon === 12.105) LOC = DEFAULT_LOC; // the previous default point
 let LAT = LOC.lat, LON = LOC.lon;
 const SHORT = { 'DMI HARMONIE 2 km': 'DMI', 'MET Nordic 1 km': 'Nordic', 'ECMWF IFS 0.25°': 'ECMWF', 'SMHI SNOW': 'SMHI', 'MET Norway': 'MET NO' };
 const coordText = (lat, lon) => `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
@@ -373,8 +444,8 @@ function renderTable(W, names) {
 function setBtn(a, b, first) { a.classList.toggle('on', first); b.classList.toggle('on', !first); }
 $('selHorizon').onchange = (e) => { horizon = +e.target.value; store('horizon', horizon); render(); };
 $('selStep').onchange = (e) => { step = +e.target.value; store('step', step); render(); };
-$('bKn').onclick = () => { unit = 'kn'; store('unit2', unit); setBtn($('bKn'), $('bMs'), true); render(); };
-$('bMs').onclick = () => { unit = 'ms'; store('unit2', unit); setBtn($('bKn'), $('bMs'), false); render(); };
+$('bKn').onclick = () => { unit = 'kn'; store('unit2', unit); setBtn($('bKn'), $('bMs'), true); render(); mapUnits(); };
+$('bMs').onclick = () => { unit = 'ms'; store('unit2', unit); setBtn($('bKn'), $('bMs'), false); render(); mapUnits(); };
 
 // ---- location ----
 function parseCoords(s) {
@@ -427,6 +498,339 @@ $('legend').onclick = (e) => {
   store('hiddenSources', [...hidden]);
   render();
 };
+
+// ================= MAP VIEW =================
+// A 9x9 grid of points around the location is fetched for one model, then interpolated
+// to the screen: a coloured speed layer plus animated streamlines.
+const MAP_MODELS = {
+  dmi:    { id: 'dmi_harmonie_arome_europe', label: 'DMI HARMONIE 2 km', days: 3 },
+  nordic: { id: 'metno_nordic',              label: 'MET Nordic 1 km',   days: 3 },
+  ecmwf:  { id: 'ecmwf_ifs025',              label: 'ECMWF IFS 0.25°',   days: 7 },
+};
+const GRID_N = 9, CELL = 10, VMAX = 28; // VMAX: m/s at the top of the colour scale
+const STOPS = [[0, '#3a5fcd'], [3, '#2aa6d9'], [6, '#2fbf8f'], [9, '#9ad14b'], [12, '#f2d03b'], [15, '#f59a2e'], [18, '#ee5a36'], [22, '#d6336c'], [28, '#8e3bb8']];
+const PALETTE = (() => {
+  const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const out = [];
+  for (let i = 0; i <= VMAX * 2; i++) {
+    const s = i / 2; let k = 0;
+    while (k < STOPS.length - 2 && s > STOPS[k + 1][0]) k++;
+    const [s0, c0] = STOPS[k], [s1, c1] = STOPS[k + 1];
+    const f = Math.min(1, Math.max(0, (s - s0) / (s1 - s0))), a = hex(c0), b = hex(c1);
+    out.push(a.map((v, j) => Math.round(v + (b[j] - v) * f)));
+  }
+  return out;
+})();
+const palIdx = (s) => Math.min(VMAX * 2, Math.max(0, Math.round(s * 2)));
+const PAL_CSS = PALETTE.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
+
+const MAP = { map: null, ready: false, model: recall('mapModel', 'dmi'), span: recall('mapSpan2', 40), fitKey: '', base: recall('mapBase', 'dark'),
+  data: null, grid: null, field: null, ti: 0, key: '', reqId: 0, parts: [], raf: 0, playing: null, layers: {}, rect: null, dot: null, pick: null, pickLL: null, size: [0, 0] };
+if (!MAP_MODELS[MAP.model]) MAP.model = 'dmi';
+const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---- basemap: the dark CARTO style needs a key; without one the map falls back to OpenStreetMap ----
+// The key is kept in this browser only (localStorage), so it never ends up in the GitHub repo.
+let CARTO_KEY = String(recall('cartoKey', '') || '');
+const activeBase = () => (MAP.base === 'dark' && CARTO_KEY ? 'dark' : 'light');
+function makeDarkLayer() {
+  return L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_KEY)}`,
+    { maxZoom: 14, attribution: '© OpenStreetMap contributors © CARTO' });
+}
+function updateKeyUi() {
+  $('keySummary').textContent = `Dark map key: ${CARTO_KEY ? 'saved in this browser' : 'not set'}`;
+  $('keyMsg').textContent = CARTO_KEY
+    ? 'The key is stored only in this browser, not in your repo.'
+    : 'Without a key the map uses the light OpenStreetMap style. Free keys: carto.com/basemaps/apikey. The key is stored only in this browser.';
+}
+function applyBase() {
+  if (!MAP.ready) return;
+  if (MAP.current) MAP.map.removeLayer(MAP.current);
+  if (activeBase() === 'dark') {
+    MAP.layers.dark = makeDarkLayer();
+    MAP.layers.dark.once('tileerror', () => { $('keyMsg').textContent = 'The dark tiles did not load. Check the key and your connection.'; });
+    MAP.current = MAP.layers.dark;
+  } else MAP.current = MAP.layers.light;
+  MAP.current.addTo(MAP.map); MAP.current.bringToBack();
+  rebuildField();
+}
+
+function initMap() {
+  if (MAP.ready) return true;
+  if (typeof L === 'undefined') { $('mapStatus').textContent = 'The map library could not be loaded. Check your internet connection.'; return false; }
+  const m = L.map('map', { preferCanvas: true, zoomSnap: 0.25 }).setView([LAT, LON], 9);
+  MAP.layers = { light: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 14, attribution: '© OpenStreetMap contributors' }) };
+  m.attributionControl.addAttribution('Wind: Open-Meteo, DMI, MET Norway, ECMWF');
+  m.on('movestart zoomstart', () => { $('heat').style.opacity = 0; $('parts').style.opacity = 0; });
+  m.on('moveend zoomend resize', () => { sizeCanvases(); rebuildField(); $('heat').style.opacity = 1; $('parts').style.opacity = 1; });
+  m.on('click', onMapClick);
+  MAP.map = m; MAP.ready = true;
+  applyBase();
+  return true;
+}
+
+function gridSpec(clat, clon, km) {
+  const dLat = km / 2 / 110.574, dLon = km / 2 / (111.32 * Math.cos(clat * Math.PI / 180));
+  return { lat0: clat - dLat, lat1: clat + dLat, lon0: clon - dLon, lon1: clon + dLon };
+}
+
+async function loadMapData(refit) {
+  const key = `${MAP.model}|${LAT}|${LON}|${MAP.span}`;
+  if (MAP.key === key && MAP.data) return;
+  const my = ++MAP.reqId;
+  const cfg = MAP_MODELS[MAP.model];
+  $('mapStatus').textContent = 'Loading wind field…';
+  const g = gridSpec(LAT, LON, MAP.span);
+  const lats = [], lons = [];
+  for (let iy = 0; iy < GRID_N; iy++) for (let ix = 0; ix < GRID_N; ix++) {
+    lats.push((g.lat0 + (g.lat1 - g.lat0) * iy / (GRID_N - 1)).toFixed(3));
+    lons.push((g.lon0 + (g.lon1 - g.lon0) * ix / (GRID_N - 1)).toFixed(3));
+  }
+  try {
+    const j = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
+      `&hourly=wind_speed_10m,wind_direction_10m&models=${cfg.id}&wind_speed_unit=ms&timezone=UTC&forecast_days=${cfg.days}`);
+    if (my !== MAP.reqId) return;
+    const arr = Array.isArray(j) ? j : [j];
+    if (arr.length !== GRID_N * GRID_N) throw new Error('unexpected response');
+    const pick = (h, name) => h[`${name}_${cfg.id}`] || h[name] || [];
+    const times = arr[0].hourly.time.map((t) => new Date(t + 'Z').getTime());
+    const sp = arr.map((a) => pick(a.hourly, 'wind_speed_10m')), dr = arr.map((a) => pick(a.hourly, 'wind_direction_10m'));
+    const ok = times.map((_, i) => sp.filter((s) => s[i] != null).length > sp.length / 2);
+    const now = Date.now();
+    const first = times.findIndex((t, i) => ok[i] && t >= now - 3600e3), last = ok.lastIndexOf(true);
+    if (first < 0 || last < first) throw new Error('no data for this area');
+    MAP.data = { times, sp, dr, g, first, last, label: cfg.label };
+    MAP.key = key;
+    if (MAP.ti < first || MAP.ti > last) MAP.ti = first;
+    const sl = $('mapTime'); sl.min = first; sl.max = last; sl.value = MAP.ti;
+    $('mapStatus').textContent = '';
+    $('mapNote').textContent = `${cfg.label}. Wind is fetched on a ${GRID_N}×${GRID_N} grid (about ${(MAP.span / (GRID_N - 1)).toFixed(0)} km apart) and smoothed between points. A smaller area shows more detail.`;
+    drawMarkers();
+    sizeCanvases();
+    const fk = `${LAT}|${LON}|${MAP.span}`;
+    if (MAP.fitKey !== fk) { MAP.fitKey = fk; fitMap(true); } // only re-frame when the place or area changed
+    setTime(MAP.ti);
+  } catch (e) {
+    if (my === MAP.reqId) { MAP.data = null; MAP.key = ''; $('mapStatus').textContent = `Could not load wind data (${e.message}).`; }
+  }
+}
+
+// close: frame roughly 8 km each way around the chosen location; otherwise show the whole data area
+function fitMap(close) {
+  const g = close ? gridSpec(LAT, LON, 16) : MAP.data.g;
+  MAP.map.invalidateSize();
+  MAP.map.fitBounds([[g.lat0, g.lon0], [g.lat1, g.lon1]], { padding: [6, 6], animate: false });
+}
+function drawMarkers() {
+  const g = MAP.data.g;
+  if (MAP.rect) MAP.rect.remove();
+  if (MAP.dot) MAP.dot.remove();
+  MAP.rect = L.rectangle([[g.lat0, g.lon0], [g.lat1, g.lon1]], { color: '#ffffff', weight: 1, dashArray: '4 4', fill: false, opacity: 0.45, interactive: false }).addTo(MAP.map);
+  MAP.dot = L.circleMarker([LAT, LON], { radius: 6, color: '#ffffff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(MAP.map);
+}
+
+function setTime(ti) {
+  const d = MAP.data; if (!d) return;
+  MAP.ti = ti;
+  const n = GRID_N * GRID_N, gs = new Float32Array(n), gu = new Float32Array(n), gv = new Float32Array(n);
+  for (let k = 0; k < n; k++) {
+    const s = d.sp[k][ti], dir = d.dr[k][ti];
+    if (s == null || dir == null) { gs[k] = gu[k] = gv[k] = NaN; continue; }
+    const r = dir * Math.PI / 180;
+    gs[k] = s; gu[k] = -s * Math.sin(r); gv[k] = -s * Math.cos(r); // direction is where the wind comes from
+  }
+  MAP.grid = { gs, gu, gv };
+  $('mapWhen').textContent = `${hourFmt.format(new Date(d.times[ti]))}${Math.abs(d.times[ti] - Date.now()) < 30 * 60e3 ? ' (now)' : ''} · ${d.label}`;
+  renderLegend();
+  rebuildField();
+}
+
+// bilinear sample of the model grid at a lat/lon; returns [u, v, speed] in m/s or null outside the grid
+function sampleGrid(lat, lon) {
+  const g = MAP.data.g, gr = MAP.grid;
+  const fx = (lon - g.lon0) / (g.lon1 - g.lon0) * (GRID_N - 1), fy = (lat - g.lat0) / (g.lat1 - g.lat0) * (GRID_N - 1);
+  if (fx < 0 || fy < 0 || fx > GRID_N - 1 || fy > GRID_N - 1) return null;
+  const x0 = Math.min(GRID_N - 2, Math.floor(fx)), y0 = Math.min(GRID_N - 2, Math.floor(fy)), tx = fx - x0, ty = fy - y0;
+  const idx = [y0 * GRID_N + x0, y0 * GRID_N + x0 + 1, (y0 + 1) * GRID_N + x0, (y0 + 1) * GRID_N + x0 + 1];
+  const w = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
+  let S = 0, U = 0, V = 0, W = 0;
+  for (let i = 0; i < 4; i++) {
+    const s = gr.gs[idx[i]]; if (Number.isNaN(s)) continue;
+    S += s * w[i]; U += gr.gu[idx[i]] * w[i]; V += gr.gv[idx[i]] * w[i]; W += w[i];
+  }
+  if (W < 0.5) return null;
+  S /= W; U /= W; V /= W;
+  const m = Math.hypot(U, V);
+  if (m > 1e-6) { U = U / m * S; V = V / m * S; } // keep the interpolated speed when directions partly cancel
+  return [U, V, S];
+}
+
+function sizeCanvases() {
+  const wrap = $('mapwrap'), w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  for (const id of ['heat', 'parts']) {
+    const c = $(id); c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  MAP.size = [w, h];
+  const want = REDUCED ? 0 : Math.min(1600, Math.max(500, Math.round(w * h / 300)));
+  if (MAP.parts.length !== want) MAP.parts = Array.from({ length: want }, () => ({ x: 0, y: 0, age: 1e9, life: 0 }));
+}
+
+// screen-space field: one wind vector every CELL pixels
+function rebuildField() {
+  if (!MAP.ready || !MAP.data || !MAP.grid) return;
+  const [w, h] = MAP.size; if (!w || !h) return;
+  const cols = Math.ceil(w / CELL) + 1, rows = Math.ceil(h / CELL) + 1;
+  const U = new Float32Array(cols * rows), V = new Float32Array(cols * rows), S = new Float32Array(cols * rows);
+  const img = new ImageData(cols, rows), alpha = activeBase() === 'light' ? 110 : 78;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const ll = MAP.map.containerPointToLatLng([c * CELL, r * CELL]);
+    const s = sampleGrid(ll.lat, ll.lng), i = r * cols + c;
+    if (!s) { U[i] = V[i] = S[i] = NaN; continue; }
+    U[i] = s[0]; V[i] = s[1]; S[i] = s[2];
+    const col = PALETTE[palIdx(s[2])];
+    img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2]; img.data[i * 4 + 3] = alpha;
+  }
+  MAP.field = { cols, rows, U, V, S };
+  const off = document.createElement('canvas'); off.width = cols; off.height = rows;
+  off.getContext('2d').putImageData(img, 0, 0);
+  const hc = $('heat').getContext('2d');
+  hc.clearRect(0, 0, w, h);
+  hc.imageSmoothingEnabled = true; hc.imageSmoothingQuality = 'high';
+  hc.drawImage(off, -CELL / 2, -CELL / 2, cols * CELL, rows * CELL);
+  $('parts').getContext('2d').clearRect(0, 0, w, h);
+}
+
+const _v = [0, 0, 0];
+function sampleScreen(x, y) {
+  const f = MAP.field; if (!f) return null;
+  const fx = x / CELL, fy = y / CELL, c0 = Math.floor(fx), r0 = Math.floor(fy);
+  if (c0 < 0 || r0 < 0 || c0 >= f.cols - 1 || r0 >= f.rows - 1) return null;
+  const tx = fx - c0, ty = fy - r0, i00 = r0 * f.cols + c0, i10 = i00 + 1, i01 = i00 + f.cols, i11 = i01 + 1;
+  if (Number.isNaN(f.S[i00]) || Number.isNaN(f.S[i10]) || Number.isNaN(f.S[i01]) || Number.isNaN(f.S[i11])) return null;
+  const a = (1 - tx) * (1 - ty), b = tx * (1 - ty), c = (1 - tx) * ty, d = tx * ty;
+  _v[0] = f.U[i00] * a + f.U[i10] * b + f.U[i01] * c + f.U[i11] * d;
+  _v[1] = f.V[i00] * a + f.V[i10] * b + f.V[i01] * c + f.V[i11] * d;
+  _v[2] = f.S[i00] * a + f.S[i10] * b + f.S[i01] * c + f.S[i11] * d;
+  return _v;
+}
+
+function respawn(p) {
+  const [w, h] = MAP.size;
+  for (let k = 0; k < 6; k++) {
+    p.x = Math.random() * w; p.y = Math.random() * h;
+    if (sampleScreen(p.x, p.y)) { p.age = 0; p.life = 40 + Math.random() * 80; return; }
+  }
+  p.age = p.life = 1e9; // nothing here: try again next frame
+}
+
+function frame() {
+  MAP.raf = requestAnimationFrame(frame);
+  if (!MAP.field || document.hidden || !MAP.parts.length) return;
+  const [w, h] = MAP.size, ctx = $('parts').getContext('2d');
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = 'rgba(0,0,0,0.09)'; ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = activeBase() === 'light' ? 0.88 : 0.62; // fainter on the dark map, stronger on the light one
+  ctx.lineWidth = 1.7; ctx.lineCap = 'round';
+  const K = 0.22; // pixels per frame for each m/s of wind
+  for (const p of MAP.parts) {
+    if (p.age++ > p.life) { respawn(p); continue; }
+    const s = sampleScreen(p.x, p.y);
+    if (!s) { respawn(p); continue; }
+    const nx = p.x + s[0] * K, ny = p.y - s[1] * K;
+    ctx.strokeStyle = PAL_CSS[palIdx(s[2])];
+    ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
+    p.x = nx; p.y = ny;
+  }
+}
+function startAnim() { if (!MAP.raf && !REDUCED) MAP.raf = requestAnimationFrame(frame); }
+function stopAnim() { cancelAnimationFrame(MAP.raf); MAP.raf = 0; stopPlay(); }
+
+function renderLegend() {
+  const bar = $('mapLegend');
+  const stops = STOPS.map(([s, c]) => `${c} ${(s / VMAX * 100).toFixed(1)}%`).join(', ');
+  bar.style.background = `linear-gradient(to right, ${stops})`;
+  const ticks = unit === 'kn' ? [0, 10, 20, 30, 40, 50] : [0, 5, 10, 15, 20, 25];
+  bar.innerHTML = ticks.map((v) => `<span style="left:${(Math.min(VMAX, unit === 'kn' ? v / 1.94384 : v) / VMAX * 100).toFixed(1)}%">${v}</span>`).join('') +
+    `<span style="left:100%;transform:translateX(-100%);top:-18px">${unit === 'kn' ? 'kn' : 'm/s'}</span>`;
+}
+function mapUnits() { if (MAP.ready) { renderLegend(); $('mapReadout').textContent = 'Tap the map to read the wind at a point.'; } }
+
+function onMapClick(e) {
+  if (!MAP.data || !MAP.grid) return;
+  if (MAP.pick) MAP.pick.remove();
+  MAP.pickLL = e.latlng;
+  MAP.pick = L.circleMarker(e.latlng, { radius: 6, color: '#ffffff', weight: 2, fillColor: '#000000', fillOpacity: 0.6, interactive: false }).addTo(MAP.map);
+  const s = sampleGrid(e.latlng.lat, e.latlng.lng);
+  if (!s) { $('mapReadout').textContent = 'No data here, outside the model grid.'; return; }
+  const from = (Math.atan2(-s[0], -s[1]) * 180 / Math.PI + 360) % 360;
+  const lat = +e.latlng.lat.toFixed(4), lon = +e.latlng.lng.toFixed(4);
+  $('mapReadout').innerHTML = `<b>${fmt(conv(s[2]))} ${unit === 'kn' ? 'kn' : 'm/s'}</b> from ${Math.round(from)}° · ${lat}, ${lon}<button id="mapHere">Forecast here</button>`;
+  $('mapHere').onclick = () => { setLocation(lat, lon, 'Map point'); switchTab('forecast'); };
+}
+
+function startPlay() {
+  if (MAP.playing || !MAP.data) return;
+  $('mapPlay').textContent = '⏸';
+  MAP.playing = setInterval(() => {
+    const d = MAP.data; if (!d) return;
+    let ti = MAP.ti + 1; if (ti > d.last) ti = d.first;
+    $('mapTime').value = ti; setTime(ti);
+  }, 450);
+}
+function stopPlay() { if (MAP.playing) { clearInterval(MAP.playing); MAP.playing = null; } $('mapPlay').textContent = '▶'; }
+
+$('mapPlay').onclick = () => (MAP.playing ? stopPlay() : startPlay());
+$('mapTime').oninput = (e) => setTime(+e.target.value);
+$('mapModel').value = MAP.model;
+$('mapSpan').value = String(MAP.span);
+$('mapBase').value = MAP.base === 'light' ? 'light' : 'dark';
+$('mapModel').onchange = (e) => { MAP.model = e.target.value; store('mapModel', MAP.model); loadMapData(false); };
+$('mapSpan').onchange = (e) => { MAP.span = +e.target.value; store('mapSpan2', MAP.span); loadMapData(true); };
+$('mapZoomIn').onclick = () => { if (MAP.data) fitMap(true); };
+$('mapZoomOut').onclick = () => { if (MAP.data) fitMap(false); };
+$('mapBase').onchange = (e) => {
+  MAP.base = e.target.value; store('mapBase', MAP.base);
+  if (MAP.base === 'dark' && !CARTO_KEY) { $('keyBox').open = true; }
+  applyBase();
+};
+function saveKey() {
+  const k = $('keyInput').value.trim();
+  if (!k) { $('keyMsg').textContent = 'Paste the key first.'; return; }
+  CARTO_KEY = k; store('cartoKey', k);
+  MAP.base = 'dark'; store('mapBase', 'dark'); $('mapBase').value = 'dark';
+  updateKeyUi(); applyBase();
+}
+$('keySave').onclick = saveKey;
+$('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
+$('keyClear').onclick = () => { CARTO_KEY = ''; store('cartoKey', ''); $('keyInput').value = ''; updateKeyUi(); applyBase(); };
+$('keyInput').value = CARTO_KEY;
+updateKeyUi();
+
+// ---- tabs ----
+function switchTab(t) {
+  store('tab', t);
+  $('viewForecast').hidden = t !== 'forecast';
+  $('viewMap').hidden = t !== 'map';
+  $('tabF').classList.toggle('on', t === 'forecast');
+  $('tabM').classList.toggle('on', t === 'map');
+  if (t === 'map') {
+    if (!initMap()) return;
+    MAP.map.invalidateSize(); sizeCanvases();
+    loadMapData(false).then(() => { if (MAP.data) drawMarkers(); });
+    startAnim();
+  } else {
+    stopAnim();
+    render();
+  }
+}
+$('tabF').onclick = () => switchTab('forecast');
+$('tabM').onclick = () => switchTab('map');
+switchTab(recall('tab', 'forecast') === 'map' ? 'map' : 'forecast');
 
 load();
 setInterval(load, 15 * 60 * 1000);
