@@ -138,22 +138,13 @@
             <option value="ecmwf">ECMWF IFS 0.25°</option>
           </select>
         </label>
-        <label>Area
-          <select id="mapSpan">
-            <option value="20">20 km</option>
-            <option value="40">40 km</option>
-            <option value="100">100 km</option>
-            <option value="250">250 km</option>
-          </select>
-        </label>
         <label>Map
           <select id="mapBase">
             <option value="dark">Dark</option>
             <option value="light">Light</option>
           </select>
         </label>
-        <button id="mapZoomIn" title="Zoom to your location">Close up</button>
-        <button id="mapZoomOut" title="Show the whole wind area">Whole area</button>
+        <button id="mapZoomIn" title="Back to your forecast location">My spot</button>
       </div>
       <details class="loc" id="keyBox">
         <summary id="keySummary">Dark map key</summary>
@@ -175,7 +166,7 @@
         <input type="range" id="mapTime" min="0" max="0" value="0" aria-label="Forecast time">
       </div>
       <div class="when2" id="mapWhen"></div>
-      <div id="mapReadout">Tap the map to read the wind at a point.</div>
+      <div id="mapReadout">Tap anywhere on the map to read the wind there, or to get the forecast for that spot.</div>
       <div class="msg" id="mapStatus"></div>
       <div class="msg" id="mapNote"></div>
     </div>
@@ -501,14 +492,14 @@ $('legend').onclick = (e) => {
 };
 
 // ================= MAP VIEW =================
-// A 9x9 grid of points around the location is fetched for one model, then interpolated
+// A grid of points covering the visible map is fetched for one model, then interpolated
 // to the screen: a coloured speed layer plus animated streamlines.
 const MAP_MODELS = {
   dmi:    { id: 'dmi_harmonie_arome_europe', label: 'DMI HARMONIE 2 km', days: 3 },
   nordic: { id: 'metno_nordic',              label: 'MET Nordic 1 km',   days: 3 },
   ecmwf:  { id: 'ecmwf_ifs025',              label: 'ECMWF IFS 0.25°',   days: 7 },
 };
-const GRID_N = 9, CELL = 10, VMAX = 28; // VMAX: m/s at the top of the colour scale
+const GRID_POINTS = 120, CELL = 10, VMAX = 28; // VMAX: m/s at the top of the colour scale
 const STOPS = [[0, '#3a5fcd'], [3, '#2aa6d9'], [6, '#2fbf8f'], [9, '#9ad14b'], [12, '#f2d03b'], [15, '#f59a2e'], [18, '#ee5a36'], [22, '#d6336c'], [28, '#8e3bb8']];
 const PALETTE = (() => {
   const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -525,7 +516,7 @@ const PALETTE = (() => {
 const palIdx = (s) => Math.min(VMAX * 2, Math.max(0, Math.round(s * 2)));
 const PAL_CSS = PALETTE.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
 
-const MAP = { map: null, ready: false, model: recall('mapModel', 'dmi'), span: recall('mapSpan2', 40), fitKey: '', base: recall('mapBase', 'dark'),
+const MAP = { map: null, ready: false, model: recall('mapModel', 'dmi'), fitKey: '', loadedViewKey: '', reloadTimer: 0, base: recall('mapBase', 'dark'),
   data: null, grid: null, field: null, ti: 0, key: '', reqId: 0, parts: [], raf: 0, playing: null, layers: {}, rect: null, dot: null, pick: null, pickLL: null, size: [0, 0] };
 if (!MAP_MODELS[MAP.model]) MAP.model = 'dmi';
 const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -568,9 +559,11 @@ function initMap() {
   m.attributionControl.addAttribution('Wind: Open-Meteo, DMI, MET Norway, ECMWF');
   m.on('movestart zoomstart', () => { $('heat').style.opacity = 0; $('parts').style.opacity = 0; });
   m.on('moveend zoomend resize', () => { sizeCanvases(); rebuildField(); $('heat').style.opacity = 1; $('parts').style.opacity = 1; });
+  m.on('moveend', scheduleReload);
   m.on('click', onMapClick);
   MAP.map = m; MAP.ready = true;
   applyBase();
+  drawMarkers();
   return true;
 }
 
@@ -579,65 +572,89 @@ function gridSpec(clat, clon, km) {
   return { lat0: clat - dLat, lat1: clat + dLat, lon0: clon - dLon, lon1: clon + dLon };
 }
 
-async function loadMapData(refit) {
-  const key = `${MAP.model}|${LAT}|${LON}|${MAP.span}`;
-  if (MAP.key === key && MAP.data) return;
+// The wind grid follows the map: it covers the visible area plus a margin, about GRID_POINTS points
+// laid out to match the screen shape, and is fetched again after you stop panning or zooming.
+function gridForView() {
+  const b = MAP.map.getBounds().pad(0.25);
+  const lat0 = Math.max(-85, b.getSouth()), lat1 = Math.min(85, b.getNorth());
+  const lon0 = Math.max(-180, b.getWest()), lon1 = Math.min(180, b.getEast());
+  const hKm = (lat1 - lat0) * 110.574, wKm = (lon1 - lon0) * 111.32 * Math.cos((lat0 + lat1) / 2 * Math.PI / 180);
+  const aspect = Math.max(0.2, Math.min(5, wKm / hKm)); // width / height of the area
+  const ny = Math.max(4, Math.min(24, Math.round(Math.sqrt(GRID_POINTS / aspect))));
+  const nx = Math.max(4, Math.min(24, Math.round(GRID_POINTS / ny)));
+  return { lat0, lat1, lon0, lon1, nx, ny, spacingKm: (wKm / (nx - 1) + hKm / (ny - 1)) / 2 };
+}
+const viewKey = () => { const v = MAP.map.getBounds(); return [v.getSouth(), v.getNorth(), v.getWest(), v.getEast()].map((x) => x.toFixed(3)).join('|'); };
+function viewNeedsReload() {
+  if (!MAP.data) return true;
+  const v = MAP.map.getBounds(), g = MAP.data.g;
+  const inside = v.getSouth() >= g.lat0 && v.getNorth() <= g.lat1 && v.getWest() >= g.lon0 && v.getEast() <= g.lon1;
+  const ratio = (v.getNorth() - v.getSouth()) / (g.lat1 - g.lat0);
+  return !inside || ratio < 0.45; // panned past the margin, or zoomed in enough that a finer grid pays off
+}
+function scheduleReload() {
+  clearTimeout(MAP.reloadTimer);
+  MAP.reloadTimer = setTimeout(() => {
+    if ($('viewMap').hidden || !MAP.ready || viewKey() === MAP.loadedViewKey) return;
+    if (viewNeedsReload()) loadMapData();
+  }, 600);
+}
+
+async function loadMapData() {
   const my = ++MAP.reqId;
   const cfg = MAP_MODELS[MAP.model];
-  $('mapStatus').textContent = 'Loading wind field…';
-  const g = gridSpec(LAT, LON, MAP.span);
+  const g = gridForView();
+  MAP.loadedViewKey = viewKey();
+  $('mapStatus').textContent = 'Updating wind field…';
   const lats = [], lons = [];
-  for (let iy = 0; iy < GRID_N; iy++) for (let ix = 0; ix < GRID_N; ix++) {
-    lats.push((g.lat0 + (g.lat1 - g.lat0) * iy / (GRID_N - 1)).toFixed(3));
-    lons.push((g.lon0 + (g.lon1 - g.lon0) * ix / (GRID_N - 1)).toFixed(3));
+  for (let iy = 0; iy < g.ny; iy++) for (let ix = 0; ix < g.nx; ix++) {
+    lats.push((g.lat0 + (g.lat1 - g.lat0) * iy / (g.ny - 1)).toFixed(3));
+    lons.push((g.lon0 + (g.lon1 - g.lon0) * ix / (g.nx - 1)).toFixed(3));
   }
   try {
     const j = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}` +
       `&hourly=wind_speed_10m,wind_direction_10m&models=${cfg.id}&wind_speed_unit=ms&timezone=UTC&forecast_days=${cfg.days}`);
-    if (my !== MAP.reqId) return;
+    if (my !== MAP.reqId) return; // a newer request replaced this one
     const arr = Array.isArray(j) ? j : [j];
-    if (arr.length !== GRID_N * GRID_N) throw new Error('unexpected response');
+    if (arr.length !== g.nx * g.ny) throw new Error('unexpected response');
     const pick = (h, name) => h[`${name}_${cfg.id}`] || h[name] || [];
     const times = arr[0].hourly.time.map((t) => new Date(t + 'Z').getTime());
     const sp = arr.map((a) => pick(a.hourly, 'wind_speed_10m')), dr = arr.map((a) => pick(a.hourly, 'wind_direction_10m'));
-    const ok = times.map((_, i) => sp.filter((s) => s[i] != null).length > sp.length / 2);
+    const ok = times.map((_, i) => sp.filter((s) => s[i] != null).length > sp.length / 4);
     const now = Date.now();
     const first = times.findIndex((t, i) => ok[i] && t >= now - 3600e3), last = ok.lastIndexOf(true);
-    if (first < 0 || last < first) throw new Error('no data for this area');
+    if (first < 0 || last < first) throw new Error('this model has no data here');
     MAP.data = { times, sp, dr, g, first, last, label: cfg.label };
-    MAP.key = key;
     if (MAP.ti < first || MAP.ti > last) MAP.ti = first;
     const sl = $('mapTime'); sl.min = first; sl.max = last; sl.value = MAP.ti;
     $('mapStatus').textContent = '';
-    $('mapNote').textContent = `${cfg.label}. Wind is fetched on a ${GRID_N}×${GRID_N} grid (about ${(MAP.span / (GRID_N - 1)).toFixed(0)} km apart) and smoothed between points. A smaller area shows more detail.`;
+    $('mapNote').textContent = `${cfg.label}. Wind is sampled about every ${g.spacingKm < 10 ? g.spacingKm.toFixed(1) : Math.round(g.spacingKm)} km across the map and smoothed between points. The grid follows the map when you pan or zoom.`;
     drawMarkers();
     sizeCanvases();
-    const fk = `${LAT}|${LON}|${MAP.span}`;
-    if (MAP.fitKey !== fk) { MAP.fitKey = fk; fitMap(true); } // only re-frame when the place or area changed
     setTime(MAP.ti);
   } catch (e) {
-    if (my === MAP.reqId) { MAP.data = null; MAP.key = ''; $('mapStatus').textContent = `Could not load wind data (${e.message}).`; }
+    if (my === MAP.reqId) $('mapStatus').textContent = `Could not update the wind field (${e.message}).`;
   }
 }
 
-// close: frame roughly 8 km each way around the chosen location; otherwise show the whole data area
-function fitMap(close) {
-  const g = close ? gridSpec(LAT, LON, 16) : MAP.data.g;
+// frame roughly 8 km each way around the forecast location (only when that location has changed, unless forced)
+function ensureFramed(force) {
+  const fk = `${LAT}|${LON}`;
+  if (!force && MAP.fitKey === fk) return;
+  MAP.fitKey = fk;
+  const g = gridSpec(LAT, LON, 16);
   MAP.map.invalidateSize();
   MAP.map.fitBounds([[g.lat0, g.lon0], [g.lat1, g.lon1]], { padding: [6, 6], animate: false });
 }
 function drawMarkers() {
-  const g = MAP.data.g;
-  if (MAP.rect) MAP.rect.remove();
-  if (MAP.dot) MAP.dot.remove();
-  MAP.rect = L.rectangle([[g.lat0, g.lon0], [g.lat1, g.lon1]], { color: '#ffffff', weight: 1, dashArray: '4 4', fill: false, opacity: 0.45, interactive: false }).addTo(MAP.map);
-  MAP.dot = L.circleMarker([LAT, LON], { radius: 6, color: '#ffffff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(MAP.map);
+  if (MAP.dot) MAP.dot.setLatLng([LAT, LON]);
+  else MAP.dot = L.circleMarker([LAT, LON], { radius: 6, color: '#ffffff', weight: 2, fillColor: '#e8590c', fillOpacity: 1, interactive: false }).addTo(MAP.map);
 }
 
 function setTime(ti) {
   const d = MAP.data; if (!d) return;
   MAP.ti = ti;
-  const n = GRID_N * GRID_N, gs = new Float32Array(n), gu = new Float32Array(n), gv = new Float32Array(n);
+  const n = d.g.nx * d.g.ny, gs = new Float32Array(n), gu = new Float32Array(n), gv = new Float32Array(n);
   for (let k = 0; k < n; k++) {
     const s = d.sp[k][ti], dir = d.dr[k][ti];
     if (s == null || dir == null) { gs[k] = gu[k] = gv[k] = NaN; continue; }
@@ -652,11 +669,11 @@ function setTime(ti) {
 
 // bilinear sample of the model grid at a lat/lon; returns [u, v, speed] in m/s or null outside the grid
 function sampleGrid(lat, lon) {
-  const g = MAP.data.g, gr = MAP.grid;
-  const fx = (lon - g.lon0) / (g.lon1 - g.lon0) * (GRID_N - 1), fy = (lat - g.lat0) / (g.lat1 - g.lat0) * (GRID_N - 1);
-  if (fx < 0 || fy < 0 || fx > GRID_N - 1 || fy > GRID_N - 1) return null;
-  const x0 = Math.min(GRID_N - 2, Math.floor(fx)), y0 = Math.min(GRID_N - 2, Math.floor(fy)), tx = fx - x0, ty = fy - y0;
-  const idx = [y0 * GRID_N + x0, y0 * GRID_N + x0 + 1, (y0 + 1) * GRID_N + x0, (y0 + 1) * GRID_N + x0 + 1];
+  const g = MAP.data.g, gr = MAP.grid, nx = g.nx, ny = g.ny;
+  const fx = (lon - g.lon0) / (g.lon1 - g.lon0) * (nx - 1), fy = (lat - g.lat0) / (g.lat1 - g.lat0) * (ny - 1);
+  if (fx < 0 || fy < 0 || fx > nx - 1 || fy > ny - 1) return null;
+  const x0 = Math.min(nx - 2, Math.floor(fx)), y0 = Math.min(ny - 2, Math.floor(fy)), tx = fx - x0, ty = fy - y0;
+  const idx = [y0 * nx + x0, y0 * nx + x0 + 1, (y0 + 1) * nx + x0, (y0 + 1) * nx + x0 + 1];
   const w = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
   let S = 0, U = 0, V = 0, W = 0;
   for (let i = 0; i < 4; i++) {
@@ -763,19 +780,27 @@ function renderLegend() {
   bar.innerHTML = ticks.map((v) => `<span style="left:${(Math.min(VMAX, unit === 'kn' ? v / 1.94384 : v) / VMAX * 100).toFixed(1)}%">${v}</span>`).join('') +
     `<span style="left:100%;transform:translateX(-100%);top:-18px">${unit === 'kn' ? 'kn' : 'm/s'}</span>`;
 }
-function mapUnits() { if (MAP.ready) { renderLegend(); $('mapReadout').textContent = 'Tap the map to read the wind at a point.'; } }
+function mapUnits() { if (MAP.ready) { renderLegend(); $('mapReadout').textContent = 'Tap anywhere on the map to read the wind there, or to get the forecast for that spot.'; } }
 
+// Tapping anywhere selects that point. "Forecast here" works even where there is no wind data on the map.
 function onMapClick(e) {
-  if (!MAP.data || !MAP.grid) return;
+  const ll = e.latlng.wrap();
   if (MAP.pick) MAP.pick.remove();
-  MAP.pickLL = e.latlng;
-  MAP.pick = L.circleMarker(e.latlng, { radius: 6, color: '#ffffff', weight: 2, fillColor: '#000000', fillOpacity: 0.6, interactive: false }).addTo(MAP.map);
-  const s = sampleGrid(e.latlng.lat, e.latlng.lng);
-  if (!s) { $('mapReadout').textContent = 'No data here, outside the model grid.'; return; }
-  const from = (Math.atan2(-s[0], -s[1]) * 180 / Math.PI + 360) % 360;
-  const lat = +e.latlng.lat.toFixed(4), lon = +e.latlng.lng.toFixed(4);
-  $('mapReadout').innerHTML = `<b>${fmt(conv(s[2]))} ${unit === 'kn' ? 'kn' : 'm/s'}</b> from ${Math.round(from)}° · ${lat}, ${lon}<button id="mapHere">Forecast here</button>`;
-  $('mapHere').onclick = () => { setLocation(lat, lon, 'Map point'); switchTab('forecast'); };
+  MAP.pickLL = ll;
+  MAP.pick = L.circleMarker(ll, { radius: 6, color: '#ffffff', weight: 2, fillColor: '#000000', fillOpacity: 0.6, interactive: false }).addTo(MAP.map);
+  const lat = +ll.lat.toFixed(4), lon = +ll.lng.toFixed(4);
+  const s = MAP.data && MAP.grid ? sampleGrid(ll.lat, ll.lng) : null;
+  let wind = `No wind data here · ${lat}, ${lon}`;
+  if (s) {
+    const from = (Math.atan2(-s[0], -s[1]) * 180 / Math.PI + 360) % 360;
+    wind = `<b>${fmt(conv(s[2]))} ${unit === 'kn' ? 'kn' : 'm/s'}</b> from ${Math.round(from)}° · ${lat}, ${lon}`;
+  }
+  $('mapReadout').innerHTML = `${wind}<button id="mapHere">Forecast here</button>`;
+  $('mapHere').onclick = () => {
+    if (MAP.pick) { MAP.pick.remove(); MAP.pick = null; } // the orange forecast dot takes over this spot
+    setLocation(lat, lon, 'Map point');
+    switchTab('forecast');
+  };
 }
 
 function startPlay() {
@@ -792,12 +817,9 @@ function stopPlay() { if (MAP.playing) { clearInterval(MAP.playing); MAP.playing
 $('mapPlay').onclick = () => (MAP.playing ? stopPlay() : startPlay());
 $('mapTime').oninput = (e) => setTime(+e.target.value);
 $('mapModel').value = MAP.model;
-$('mapSpan').value = String(MAP.span);
 $('mapBase').value = MAP.base === 'light' ? 'light' : 'dark';
-$('mapModel').onchange = (e) => { MAP.model = e.target.value; store('mapModel', MAP.model); loadMapData(false); };
-$('mapSpan').onchange = (e) => { MAP.span = +e.target.value; store('mapSpan2', MAP.span); loadMapData(true); };
-$('mapZoomIn').onclick = () => { if (MAP.data) fitMap(true); };
-$('mapZoomOut').onclick = () => { if (MAP.data) fitMap(false); };
+$('mapModel').onchange = (e) => { MAP.model = e.target.value; store('mapModel', MAP.model); if (MAP.ready) loadMapData(); };
+$('mapZoomIn').onclick = () => { if (MAP.ready) ensureFramed(true); };
 $('mapBase').onchange = (e) => {
   MAP.base = e.target.value; store('mapBase', MAP.base);
   if (MAP.base === 'dark' && !CARTO_KEY) { $('keyBox').open = true; }
@@ -826,7 +848,9 @@ function switchTab(t) {
   if (t === 'map') {
     if (!initMap()) return;
     MAP.map.invalidateSize(); sizeCanvases();
-    loadMapData(false).then(() => { if (MAP.data) drawMarkers(); });
+    ensureFramed(false); // re-centres only if the forecast location changed since the map was last open
+    drawMarkers();
+    if (viewKey() !== MAP.loadedViewKey || !MAP.data) loadMapData();
     startAnim();
   } else {
     stopAnim();
