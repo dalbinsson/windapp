@@ -231,7 +231,43 @@ let LAT = LOC.lat, LON = LOC.lon;
 const SHORT = { 'DMI HARMONIE 2 km': 'DMI', 'MET Nordic 1 km': 'Nordic', 'ECMWF IFS 0.25°': 'ECMWF', 'SMHI SNOW': 'SMHI', 'MET Norway': 'MET NO' };
 const coordText = (lat, lon) => `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
 const num = (v) => (typeof v === 'number' ? v : null);
+// ---- mock mode: open the page with ?mock (or ?mock=1) to use synthetic forecasts, no network needed ----
+let MOCK = /[?&]mock(=1|=true|&|$)/.test(location.search);
+function useMock() { MOCK = true; load(); if (MAP.ready && !$('viewMap').hidden) loadMapData(); }
+function mockSeries(model, lat, lon, n = 240) {
+  const t0 = Math.floor(Date.now() / 3600e3) * 3600e3, seed = (model.length * 1.7) % 3, time = [], speed = [], gust = [], dir = [], lull = [];
+  for (let i = 0; i < n; i++) {
+    time.push(t0 + i * 3600e3);
+    const geo = Math.sin((lat * 13 + lon * 7)) * 0.8; // small spatial variation so the map field looks alive
+    const front = 9 * Math.exp(-(((i - 34) / 9) ** 2)) + 12 * Math.exp(-(((i - 100) / 12) ** 2)); // two blows
+    const v = Math.max(0.3, 4.5 + 2.5 * Math.sin(i / 7 + seed) + front + geo + seed * 0.4);
+    speed.push(+v.toFixed(1)); gust.push(+(v * (1.3 + 0.1 * Math.sin(i / 3))).toFixed(1)); lull.push(+(v * 0.7).toFixed(1));
+    dir.push(Math.round((210 + i * 1.5 + 40 * Math.sin(i / 20) + lon * 5 + seed * 10) % 360));
+  }
+  return { time, speed, gust, dir, lull };
+}
+function mockJson(url) {
+  const u = new URL(url), q = u.searchParams;
+  const iso = (t) => new Date(t).toISOString();
+  if (u.host.includes('open-meteo')) {
+    const lats = q.get('latitude').split(',').map(Number), lons = q.get('longitude').split(',').map(Number), id = q.get('models');
+    const days = +q.get('forecast_days') || 7;
+    const arr = lats.map((la, k) => {
+      const m = mockSeries(id, la, lons[k], days * 24);
+      return { hourly: { time: m.time.map((t) => iso(t).slice(0, 16)), ['wind_speed_10m_' + id]: m.speed, ['wind_gusts_10m_' + id]: m.gust, ['wind_direction_10m_' + id]: m.dir } };
+    });
+    return lats.length > 1 ? arr : arr[0];
+  }
+  const lat = +(q.get('lat') || u.pathname.match(/lat\/([\d.]+)/)?.[1] || LAT), lon = +(q.get('lon') || u.pathname.match(/lon\/([\d.]+)/)?.[1] || LON);
+  if (u.host.includes('smhi')) {
+    const m = mockSeries('SMHI', lat, lon, 160);
+    return { timeSeries: m.time.map((t, i) => ({ time: iso(t), data: { wind_speed: m.speed[i], wind_speed_of_gust: m.gust[i], wind_from_direction: m.dir[i] } })) };
+  }
+  const m = mockSeries('MET Norway', lat, lon, 200);
+  return { properties: { timeseries: m.time.map((t, i) => ({ time: iso(t), data: { instant: { details: { wind_speed: m.speed[i], wind_speed_of_gust: m.gust[i], wind_from_direction: m.dir[i], wind_speed_percentile_10: m.lull[i] } } } })) } };
+}
 async function getJson(url) {
+  if (MOCK) { await new Promise((r) => setTimeout(r, 150)); return mockJson(url); }
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json();
@@ -287,12 +323,12 @@ async function load() {
     data = await buildData();
     if (!Object.keys(data.sources).length) throw new Error('no sources');
   } catch (e) {
-    if (my === loadId) $('sub').textContent = 'No forecast sources reachable. Check your connection and the coordinates.';
+    if (my === loadId) { $('sub').innerHTML = 'No forecast sources reachable. Check your connection and the coordinates. <button id="useMock">Use mock data</button>'; $('useMock').onclick = useMock; }
     return;
   }
   if (my !== loadId) return; // the location changed while this request was running
   DATA = data;
-  $('sub').textContent = `${coordText(DATA.lat, DATA.lon)} · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind`;
+  $('sub').textContent = `${coordText(DATA.lat, DATA.lon)} · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind${MOCK ? ' · MOCK DATA' : ''}`;
   const errs = Object.entries(DATA.errors || {}).map(([k, v]) => `${k}: ${v}`);
   $('errs').textContent = errs.length ? 'Unavailable → ' + errs.join(' | ') : '';
   render();
@@ -318,6 +354,29 @@ function runs(pts, ok) {
   for (const p of pts) { if (ok(p)) cur.push(p); else { if (cur.length) out.push(cur); cur = []; } }
   if (cur.length) out.push(cur);
   return out;
+}
+
+// Smooth curve through points [[x,y],...] (monotone cubic, Fritsch-Carlson): no overshoot, so a line never
+// dips below a real minimum or above a real peak. Returns path commands starting with M (or L when cont).
+function smoothPath(P, cont) {
+  const n = P.length, f = (v) => v.toFixed(1);
+  if (!n) return '';
+  let d = `${cont ? 'L' : 'M'}${f(P[0][0])},${f(P[0][1])}`;
+  if (n < 3) { for (let i = 1; i < n; i++) d += `L${f(P[i][0])},${f(P[i][1])}`; return d; }
+  const dx = [], sl = [], m = new Array(n);
+  for (let i = 0; i < n - 1; i++) { dx[i] = P[i + 1][0] - P[i][0] || 1e-6; sl[i] = (P[i + 1][1] - P[i][1]) / dx[i]; }
+  m[0] = sl[0]; m[n - 1] = sl[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = sl[i - 1] * sl[i] <= 0 ? 0 : (sl[i - 1] + sl[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (sl[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / sl[i], b = m[i + 1] / sl[i], h = a * a + b * b;
+    if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * sl[i]; m[i + 1] = t * b * sl[i]; }
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const w = dx[i] / 3;
+    d += `C${f(P[i][0] + w)},${f(P[i][1] + m[i] * w)} ${f(P[i + 1][0] - w)},${f(P[i + 1][1] - m[i + 1] * w)} ${f(P[i + 1][0])},${f(P[i + 1][1])}`;
+  }
+  return d;
 }
 
 function render() {
@@ -372,15 +431,15 @@ function render() {
   // gust bands first (behind), then mean lines
   for (const n of names) {
     for (const seg of runs(W[n], (p) => p.speed != null && p.gust != null)) {
-      const top = seg.map((p) => `${x(p.t).toFixed(1)},${y(Math.max(p.gust, p.speed)).toFixed(1)}`);
+      const top = seg.map((p) => [x(p.t), y(Math.max(p.gust, p.speed))]);
       // lower edge: the lull where the source has one, otherwise the mean line
-      const bot = seg.slice().reverse().map((p) => `${x(p.t).toFixed(1)},${y(p.lull != null ? Math.min(p.lull, p.speed) : p.speed).toFixed(1)}`);
-      g += `<polygon points="${top.concat(bot).join(' ')}" fill="${colorOf(n)}" fill-opacity="0.16" stroke="none"/>`;
+      const bot = seg.slice().reverse().map((p) => [x(p.t), y(p.lull != null ? Math.min(p.lull, p.speed) : p.speed)]);
+      g += `<path d="${smoothPath(top)}${smoothPath(bot, true)}Z" fill="${colorOf(n)}" fill-opacity="0.16" stroke="none"/>`;
     }
   }
   for (const n of names) {
     for (const seg of runs(W[n], (p) => p.speed != null)) {
-      const d = seg.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.speed).toFixed(1)}`).join('');
+      const d = smoothPath(seg.map((p) => [x(p.t), y(p.speed)]));
       g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${lw}" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
   }
@@ -651,7 +710,7 @@ async function loadMapData() {
     renderTicks(); renderMapGraph();
     setTime(MAP.ti);
   } catch (e) {
-    if (my === MAP.reqId) $('mapStatus').textContent = `Could not update the wind field (${e.message}).`;
+    if (my === MAP.reqId) { $('mapStatus').innerHTML = `Could not update the wind field (${e.message}). <button id="useMock2">Use mock data</button>`; $('useMock2').onclick = useMock; }
   }
 }
 
@@ -905,7 +964,7 @@ function renderMapGraph() {
   g += `<line x1="${L}" x2="${w - R}" y1="${T}" y2="${T}" stroke="currentColor" opacity="0.1" stroke-dasharray="2 3"/>`;
   g += `<text x="${L}" y="${T - 4}" font-size="11" fill="currentColor" opacity="0.65">${vmaxU} ${unit === 'kn' ? 'kn' : 'm/s'}</text>`;
   for (const run of runs(ser, (p) => p.v != null)) {
-    const line = run.map((p, j) => `${j ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    const line = smoothPath(run.map((p) => [x(p.t), y(p.v)]));
     g += `<path d="${line}L${x(run[run.length - 1].t).toFixed(1)},${T + ih}L${x(run[0].t).toFixed(1)},${T + ih}Z" fill="url(#gSpdF)" opacity="0.16"/>`;
     g += `<path d="${line}" fill="none" stroke="url(#gSpd)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
   }
