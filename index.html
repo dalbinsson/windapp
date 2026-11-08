@@ -183,6 +183,7 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="config.js"></script>
 <script>
 const COLORS = {
   'DMI HARMONIE 2 km': '#2a7de1',
@@ -530,18 +531,22 @@ if (!MAP_MODELS[MAP.model]) MAP.model = 'dmi';
 const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- basemap: the dark CARTO style needs a key; without one the map falls back to OpenStreetMap ----
-// The key is kept in this browser only (localStorage), so it never ends up in the GitHub repo.
-let CARTO_KEY = String(recall('cartoKey', '') || '');
+// The key lives in a separate config.js next to this page (kept out of git). A key pasted into
+// the box overrides it in this browser only.
+const CARTO_KEY_BUILTIN = String((window.WIND_CONFIG && window.WIND_CONFIG.cartoKey) || '');
+let CARTO_KEY = String(recall('cartoKey', '') || CARTO_KEY_BUILTIN);
 const activeBase = () => (MAP.base === 'dark' && CARTO_KEY ? 'dark' : 'light');
 function makeDarkLayer() {
   return L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(CARTO_KEY)}`,
     { maxZoom: 14, attribution: '© OpenStreetMap contributors © CARTO' });
 }
 function updateKeyUi() {
-  $('keySummary').textContent = `Dark map key: ${CARTO_KEY ? 'saved in this browser' : 'not set'}`;
-  $('keyMsg').textContent = CARTO_KEY
-    ? 'The key is stored only in this browser, not in your repo.'
-    : 'Without a key the map uses the light OpenStreetMap style. Free keys: carto.com/basemaps/apikey. The key is stored only in this browser.';
+  const custom = CARTO_KEY && CARTO_KEY !== CARTO_KEY_BUILTIN;
+  $('keySummary').textContent = `Dark map key: ${custom ? 'custom, saved in this browser' : CARTO_KEY ? 'from config.js' : 'not set'}`;
+  $('keyMsg').textContent = custom
+    ? 'This key overrides config.js in this browser only. Clear returns to the key in config.js.'
+    : CARTO_KEY ? 'Using the key from config.js. Paste another key here to override it in this browser.'
+    : 'No key found. Put it in config.js next to this page, or paste it here to save it in this browser. Without a key the map uses the light OpenStreetMap style.';
 }
 function applyBase() {
   if (!MAP.ready) return;
@@ -807,8 +812,8 @@ function saveKey() {
 }
 $('keySave').onclick = saveKey;
 $('keyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
-$('keyClear').onclick = () => { CARTO_KEY = ''; store('cartoKey', ''); $('keyInput').value = ''; updateKeyUi(); applyBase(); };
-$('keyInput').value = CARTO_KEY;
+$('keyClear').onclick = () => { CARTO_KEY = CARTO_KEY_BUILTIN; store('cartoKey', ''); $('keyInput').value = ''; updateKeyUi(); applyBase(); };
+$('keyInput').value = CARTO_KEY === CARTO_KEY_BUILTIN ? '' : CARTO_KEY;
 updateKeyUi();
 
 // ---- tabs ----
