@@ -240,7 +240,7 @@ function mockSeries(model, lat, lon, n = 240) {
     time.push(t0 + i * 3600e3);
     const geo = Math.sin((lat * 13 + lon * 7)) * 0.8; // small spatial variation so the map field looks alive
     const front = 9 * Math.exp(-(((i - 34) / 9) ** 2)) + 12 * Math.exp(-(((i - 100) / 12) ** 2)); // two blows
-    const v = Math.max(0.3, 4.5 + 2.5 * Math.sin(i / 7 + seed) + front + geo + seed * 0.4);
+    const v = Math.max(0.3, 4.5 + 2.5 * Math.sin(i / 7 + seed) + front + geo + seed * 0.4 + 0.9 * Math.sin(i * 2.3 + seed * 5) + 0.6 * Math.sin(i * 4.1));
     speed.push(+v.toFixed(1)); gust.push(+(v * (1.3 + 0.1 * Math.sin(i / 3))).toFixed(1)); lull.push(+(v * 0.7).toFixed(1));
     dir.push(Math.round((210 + i * 1.5 + 40 * Math.sin(i / 20) + lon * 5 + seed * 10) % 360));
   }
@@ -379,6 +379,20 @@ function smoothPath(P, cont) {
   return d;
 }
 
+// Light time-weighted Gaussian low-pass (sigma in hours) over one run of points, for drawing only.
+// Hourly model output is noisy; this removes the jitter but keeps peaks and the timing of changes.
+const SMOOTH_H = 1.6;
+function lowpass(seg, key, sigmaH) {
+  const sg = sigmaH * 3600e3;
+  return seg.map((p, i) => {
+    if (p[key] == null) return null;
+    let S = 0, W = 0;
+    for (let j = i; j >= 0 && p.t - seg[j].t <= 3 * sg; j--) { const q = seg[j]; if (q[key] == null) continue; const w = Math.exp(-0.5 * ((p.t - q.t) / sg) ** 2); S += q[key] * w; W += w; }
+    for (let j = i + 1; j < seg.length && seg[j].t - p.t <= 3 * sg; j++) { const q = seg[j]; if (q[key] == null) continue; const w = Math.exp(-0.5 * ((q.t - p.t) / sg) ** 2); S += q[key] * w; W += w; }
+    return W ? S / W : p[key];
+  });
+}
+
 function render() {
   if (!DATA) return;
   $('selHorizon').value = String(horizon);
@@ -431,15 +445,17 @@ function render() {
   // gust bands first (behind), then mean lines
   for (const n of names) {
     for (const seg of runs(W[n], (p) => p.speed != null && p.gust != null)) {
-      const top = seg.map((p) => [x(p.t), y(Math.max(p.gust, p.speed))]);
+      const sp = lowpass(seg, 'speed', SMOOTH_H), gu = lowpass(seg, 'gust', SMOOTH_H), lu = lowpass(seg, 'lull', SMOOTH_H);
+      const top = seg.map((p, i) => [x(p.t), y(Math.max(gu[i], sp[i]))]);
       // lower edge: the lull where the source has one, otherwise the mean line
-      const bot = seg.slice().reverse().map((p) => [x(p.t), y(p.lull != null ? Math.min(p.lull, p.speed) : p.speed)]);
+      const bot = seg.map((p, i) => [x(p.t), y(p.lull != null && lu[i] != null ? Math.min(lu[i], sp[i]) : sp[i])]).reverse();
       g += `<path d="${smoothPath(top)}${smoothPath(bot, true)}Z" fill="${colorOf(n)}" fill-opacity="0.16" stroke="none"/>`;
     }
   }
   for (const n of names) {
     for (const seg of runs(W[n], (p) => p.speed != null)) {
-      const d = smoothPath(seg.map((p) => [x(p.t), y(p.speed)]));
+      const sp = lowpass(seg, 'speed', SMOOTH_H); seg.forEach((p, i) => { p.sm = sp[i]; });
+      const d = smoothPath(seg.map((p, i) => [x(p.t), y(sp[i])]));
       g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${lw}" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
   }
@@ -469,7 +485,7 @@ function showAt(t) {
     const p = nearest(W[n], t, 90 * 60e3);
     const c = colorOf(n);
     if (!p) { items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <small>–</small></span>`; continue; }
-    g += `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.speed).toFixed(1)}" r="${lw + 1.5}" fill="${c}" style="stroke:var(--card)" stroke-width="2"/>`;
+    g += `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.sm != null ? p.sm : p.speed).toFixed(1)}" r="${lw + 1.5}" fill="${c}" style="stroke:var(--card)" stroke-width="2"/>`;
     const arrow = p.dir == null ? '' : `<span class="arrow" style="transform:rotate(${p.dir + 180}deg)">↑</span> `;
     const range = p.gust == null ? '' : p.lull != null ? `${fmt(p.lull)}–${fmt(p.gust)}` : `gust ${fmt(p.gust)}`;
     items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <b>${arrow}${fmt(p.speed)}</b><small>${range}</small></span>`;
