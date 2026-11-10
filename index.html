@@ -60,7 +60,7 @@
   .ticks i.day { height:12px; opacity:1; }
   .ticks span { position:absolute; top:13px; font-size:11px; color:var(--mute); transform:translateX(-50%); white-space:nowrap; }
   .ticks span.day { font-weight:700; color:var(--fg); }
-  #mapGraph { width:100%; height:76px; display:block; touch-action:pan-y; }
+  #mapGraph { width:100%; height:94px; display:block; touch-action:pan-y; }
   .graphcap { font-size:12px; color:var(--mute); margin-top:2px; min-height:16px; }
   .when2 { font-weight:600; font-size:15px; margin-top:8px; }
   .legendbar { position:relative; height:12px; border-radius:6px; margin:14px 4px 22px; }
@@ -900,7 +900,7 @@ function onMapClick(e) {
 
 
 // ---- time-slider ticks and compact wind graph ----
-const GR = { w: 0, h: 76, L: 10, R: 10, T: 16, B: 4, t0: 0, t1: 1, vmax: 1, ser: null };
+const GR = { w: 0, h: 94, L: 10, R: 10, T: 16, B: 22, t0: 0, t1: 1, vmax: 1, ser: null };
 const graphPoint = () => (MAP.pickLL ? [MAP.pickLL.lat, MAP.pickLL.lng] : [LAT, LON]);
 const dayOnly = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, weekday: 'short', day: 'numeric' });
 const hr2 = new Intl.DateTimeFormat('sv-SE', { timeZone: TZ, hour: '2-digit', hour12: false });
@@ -940,9 +940,14 @@ function graphSeries() {
   const wt = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
   const pts = [];
   for (let i = d.first; i <= d.last; i++) {
-    let S = 0, W = 0;
-    for (let k = 0; k < 4; k++) { const v = d.sp[idx[k]][i]; if (v != null) { S += v * wt[k]; W += wt[k]; } }
-    pts.push({ t: d.times[i], i, v: W > 0.3 ? S / W : null });
+    let S = 0, W = 0, U = 0, V = 0;
+    for (let k = 0; k < 4; k++) {
+      const v = d.sp[idx[k]][i], dr = d.dr[idx[k]][i];
+      if (v != null) { S += v * wt[k]; W += wt[k]; }
+      if (v != null && dr != null) { const r = dr * Math.PI / 180; U += -v * Math.sin(r) * wt[k]; V += -v * Math.cos(r) * wt[k]; }
+    }
+    const dir = W > 0.3 && (U || V) ? (Math.atan2(-U, -V) * 180 / Math.PI + 360) % 360 : null; // where the wind comes from
+    pts.push({ t: d.times[i], i, v: W > 0.3 ? S / W : null, dir });
   }
   return pts;
 }
@@ -980,9 +985,16 @@ function renderMapGraph() {
   g += `<line x1="${L}" x2="${w - R}" y1="${T}" y2="${T}" stroke="currentColor" opacity="0.1" stroke-dasharray="2 3"/>`;
   g += `<text x="${L}" y="${T - 4}" font-size="11" fill="currentColor" opacity="0.65">${vmaxU} ${unit === 'kn' ? 'kn' : 'm/s'}</text>`;
   for (const run of runs(ser, (p) => p.v != null)) {
-    const line = smoothPath(run.map((p) => [x(p.t), y(p.v)]));
+    const sm = lowpass(run, 'v', SMOOTH_H);
+    const line = smoothPath(run.map((p, i) => [x(p.t), y(sm[i])]));
     g += `<path d="${line}L${x(run[run.length - 1].t).toFixed(1)},${T + ih}L${x(run[0].t).toFixed(1)},${T + ih}Z" fill="url(#gSpdF)" opacity="0.16"/>`;
     g += `<path d="${line}" fill="none" stroke="url(#gSpd)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  // wind arrows: they point the way the air is moving (the table's convention), coloured by speed
+  const gap = Math.max(1, Math.ceil(26 / Math.max(1, iw / Math.max(1, ser.length - 1))));
+  for (let k = 0; k < ser.length; k += gap) {
+    const p = ser[k]; if (p.v == null || p.dir == null) continue;
+    g += `<g transform="translate(${x(p.t).toFixed(1)},${T + ih + 12}) rotate(${(p.dir + 180).toFixed(0)})" stroke="${PAL_CSS[palIdx(p.v)]}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M0,-6V6M-3.5,-2.5L0,-6.5L3.5,-2.5"/></g>`;
   }
   g += `<line id="gCur" y1="${T}" y2="${T + ih}" stroke="currentColor" opacity="0.7" stroke-width="1.5"/><circle id="gDot" r="4.5" stroke="#fff" stroke-width="1.5"/>`;
   svg.innerHTML = g;
