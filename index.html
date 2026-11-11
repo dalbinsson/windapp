@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Åsa Wind</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#14181f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💨</text></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.1/dist/maplibre-gl.css">
 <style>
@@ -194,11 +199,11 @@
   </div>
   <footer class="credits">
     <b>Data and credits.</b>
-    Forecasts: <a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a> (DMI HARMONIE, MET Nordic and ECMWF IFS, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>),
-    <a href="https://www.smhi.se/en/services/open-data/conditions-of-use-1.33347">SMHI open data</a> (CC BY 4.0) and
-    <a href="https://developer.yr.no/doc/License/">MET Norway</a> (CC BY 4.0).
+    Forecasts: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (DMI HARMONIE, MET Nordic and ECMWF IFS, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>),
+    <a href="https://www.smhi.se/en/services/open-data/conditions-of-use-1.33347" target="_blank" rel="noopener">SMHI open data</a> (CC BY 4.0) and
+    <a href="https://developer.yr.no/doc/License/" target="_blank" rel="noopener">MET Norway</a> (CC BY 4.0).
     Values are processed: lines are smoothed, the map wind is interpolated between model grid points, and heights are 10 m.
-    Map: <a href="https://openfreemap.org/">OpenFreeMap</a> © <a href="https://openmaptiles.org/">OpenMapTiles</a>, data from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>.
+    Map: <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
     A hobby project. Do not rely on it for safety decisions at sea.
   </footer>
 </main>
@@ -206,7 +211,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
-<script src="config.js"></script>
+<script>window.WIND_CONFIG = window.WIND_CONFIG || {};</script>
+<script src="config.js" onerror="this.remove()"></script>
 <script>
 const COLORS = {
   'DMI HARMONIE 2 km': '#2a7de1',
@@ -548,7 +554,24 @@ $('bMs').onclick = () => { unit = 'ms'; store('unit2', unit); setBtn($('bKn'), $
 
 // ---- location ----
 function parseCoords(s) {
-  const m = (s || '').match(/-?\d+(?:[.,]\d+)?/g);
+  if (!s) return null;
+  const parts = s.match(/([NSEWnsew])?\s*°?\s*([+-]?\d+(?:[.,]\d+)?)\s*°?\s*([NSEWnsew])?/g);
+  const tokens = (parts || []).map((t) => t.trim()).filter(Boolean);
+  if (tokens.length === 2) {
+    const parsePart = (tok) => {
+      const nm = tok.match(/[+-]?\d+(?:[.,]\d+)?/);
+      if (!nm) return NaN;
+      let val = parseFloat(nm[0].replace(',', '.'));
+      if (/[SWsw]/.test(tok)) val = -Math.abs(val);
+      else if (/[NEne]/.test(tok)) val = Math.abs(val);
+      return val;
+    };
+    const lat = parsePart(tokens[0]), lon = parsePart(tokens[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return { lat, lon };
+    }
+  }
+  const m = s.match(/-?\d+(?:[.,]\d+)?/g);
   if (!m || m.length !== 2) return null;
   const [lat, lon] = m.map((v) => parseFloat(v.replace(',', '.')));
   return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : null;
@@ -1110,7 +1133,7 @@ function startPlay() {
 function stopPlay() { if (MAP.playing) { clearInterval(MAP.playing); MAP.playing = null; } $('mapPlay').textContent = '▶'; }
 
 $('mapPlay').onclick = () => (MAP.playing ? stopPlay() : startPlay());
-$('mapTime').oninput = (e) => setTime(+e.target.value);
+$('mapTime').oninput = (e) => { stopPlay(); setTime(+e.target.value); };
 $('mapModel').value = MAP.model;
 $('mapBase').value = MAP.base;
 $('mapModel').onchange = (e) => { MAP.model = e.target.value; store('mapModel', MAP.model); if (MAP.ready) loadMapData(); };
@@ -1145,7 +1168,7 @@ function switchTab(t) {
     MAP.map.invalidateSize(); sizeCanvases();
     ensureFramed(false); // re-centres only if the forecast location changed since the map was last open
     drawMarkers();
-    if (viewKey() !== MAP.loadedViewKey || !MAP.data) loadMapData(); else { renderTicks(); renderMapGraph(); }
+    if (viewKey() !== MAP.loadedViewKey || !MAP.data) loadMapData(); else { rebuildField(); renderTicks(); renderMapGraph(); }
     startAnim();
   } else {
     stopAnim();
