@@ -2,201 +2,205 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Åsa Wind</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#14181f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a141a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef2f5" media="(prefers-color-scheme: light)">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💨</text></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.1/dist/maplibre-gl.css">
 <style>
-  :root { --bg:#f6f7f9; --fg:#14181f; --mute:#667085; --card:#fff; --line:#e3e6eb; }
+  /* Sea-chart neutrals; the only saturated colours are the wind-speed scale and the model identities. */
+  :root { --bg:#eef2f5; --fg:#0f1f28; --mute:#566b76; --card:#fbfdfe; --line:#d0dae0; --glass:rgba(238,242,245,.84); --scrim:rgba(8,20,28,.36); --tab-h:58px; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0e1116; --fg:#e8ebf0; --mute:#8b94a3; --card:#171b22; --line:#262c36; color-scheme: dark; }
+    :root { --bg:#0a141a; --fg:#e7eff3; --mute:#8ea3ad; --card:#10202a; --line:#1f3541; --glass:rgba(10,20,26,.82); --scrim:rgba(0,0,0,.55); color-scheme: dark; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
-  main { max-width:960px; margin:0 auto; padding:16px; }
-  h1 { font-size:20px; margin:0 0 2px; }
-  .sub { color:var(--mute); font-size:13px; margin-bottom:14px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:14px; }
-  .row { display:flex; gap:10px 14px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-  label { font-size:13px; color:var(--mute); display:inline-flex; align-items:center; gap:6px; }
-  select, button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; cursor:pointer; }
-  button.on { border-color:var(--fg); font-weight:600; }
-  .seg { display:inline-flex; gap:6px; }
-  .legend { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
-  .chip { display:inline-flex; align-items:center; gap:8px; font-size:14px; padding:8px 14px; border-radius:999px; }
-  .chip i { width:16px; height:4px; border-radius:2px; display:inline-block; background:var(--c); }
-  .chip.off { opacity:.5; }
-  .chip.off i { background:var(--mute); }
-  .chip.off span { text-decoration:line-through; }
-  svg { width:100%; height:auto; display:block; touch-action:pan-y; }
-  .readout { min-height:86px; margin-bottom:4px; }
-  .readout .when { font-weight:600; margin-bottom:4px; }
-  .readout .when span { color:var(--mute); font-weight:400; }
-  .readout .items { display:flex; flex-wrap:wrap; gap:4px 16px; }
-  .readout .it { display:inline-flex; align-items:baseline; gap:6px; font-size:14px; font-variant-numeric:tabular-nums; }
-  .readout .it i { width:10px; height:10px; border-radius:50%; background:var(--c); display:inline-block; align-self:center; }
-  .readout .it b { font-size:17px; }
-  .readout .it small { color:var(--mute); font-size:12px; }
-  details.loc { margin-bottom:8px; }
-  details.loc summary { cursor:pointer; color:var(--mute); font-size:14px; min-height:36px; display:flex; align-items:center; }
-  .locform { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-  input[type=text] { flex:1 1 200px; min-width:0; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; }
-  .credits { font-size:12px; color:var(--mute); line-height:1.5; padding:4px 2px 20px; }
-  .credits a { color:inherit; text-decoration:underline; }
-  .msg { font-size:12px; color:var(--mute); margin-top:6px; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-tap-highlight-color:transparent; }
+  body.noscroll { overflow:hidden; }
   [hidden] { display:none !important; }
-  .topbar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
-  .topbar .seg button { min-width:56px; }
-  .mapwrap { position:relative; height:min(66vh, 600px); min-height:340px; border-radius:10px; overflow:hidden; border:1px solid var(--line); background:#1a1d24; }
-  #map { position:absolute; inset:0; }
-  .mapwrap canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:450; transition:opacity .15s; }
-  .timebox { display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:start; margin-top:8px; }
-  .timecol { min-width:0; }
-  #mapPlay { min-width:48px; min-height:36px; }
-  input[type=range] { -webkit-appearance:none; appearance:none; background:transparent; width:100%; height:36px; margin:0; display:block; }
-  input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px; background:var(--line); }
-  input[type=range]::-moz-range-track { height:6px; border-radius:3px; background:var(--line); }
-  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; box-sizing:border-box; width:20px; height:20px; border-radius:50%; background:var(--fg); border:2px solid var(--card); margin-top:-7px; }
-  input[type=range]::-moz-range-thumb { box-sizing:border-box; width:20px; height:20px; border-radius:50%; background:var(--fg); border:2px solid var(--card); }
-  .ticks { position:relative; height:30px; margin:-6px 10px 0; }
-  .ticks i { position:absolute; top:0; width:1px; height:6px; background:var(--mute); opacity:.55; }
-  .ticks i.day { height:12px; opacity:1; }
-  .ticks span { position:absolute; top:13px; font-size:11px; color:var(--mute); transform:translateX(-50%); white-space:nowrap; }
-  .ticks span.day { font-weight:700; color:var(--fg); }
-  #mapGraph { width:100%; height:94px; display:block; touch-action:pan-y; }
-  .graphcap { font-size:12px; color:var(--mute); margin-top:2px; min-height:16px; }
-  .when2 { font-weight:600; font-size:15px; margin-top:8px; }
-  .legendbar { position:relative; height:12px; border-radius:6px; margin:14px 4px 22px; }
-  .legendbar span { position:absolute; top:16px; transform:translateX(-50%); font-size:12px; color:var(--mute); font-variant-numeric:tabular-nums; }
-  #mapReadout { min-height:40px; margin-top:6px; font-size:15px; }
-  #mapReadout button { margin-left:8px; min-height:34px; padding:4px 10px; font-size:14px; }
+  :focus-visible { outline:2px solid var(--fg); outline-offset:2px; }
+
+  /* header: title on the left, view switch and settings on the right */
+  .top { max-width:960px; margin:0 auto; padding:max(8px, env(safe-area-inset-top)) 12px 4px 14px; }
+  .toprow { display:flex; align-items:center; gap:8px; }
+  h1 { flex:1; min-width:0; font-size:22px; line-height:1.15; letter-spacing:-.015em; font-weight:700; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub { color:var(--mute); font-size:12.5px; font-variant-numeric:tabular-nums; margin:0 0 2px; }
+  .sub button { min-height:32px; padding:2px 10px; font-size:13px; margin-left:6px; }
+  main { max-width:960px; margin:0 auto; padding:0 12px calc(env(safe-area-inset-bottom) + 20px); }
+
+  /* controls */
+  select, button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; cursor:pointer; }
+  button.icon { width:44px; height:44px; padding:0; display:grid; place-items:center; border:0; background:transparent; flex:none; }
+  button.icon svg { width:24px; height:24px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--card); }
+  .seg button { border:0; border-radius:0; background:transparent; min-width:64px; }
+  .tabs button { min-width:0; padding:8px 14px; }
+  .seg button.on { background:var(--fg); color:var(--bg); font-weight:600; }
+  input[type=text] { flex:1 1 180px; min-width:0; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:8px 12px; min-height:40px; font:inherit; font-size:16px; }
+  .msg { font-size:12px; color:var(--mute); margin-top:6px; line-height:1.45; }
+  .err { color:#c0392b; font-size:13px; padding:4px 0; }
+
+  /* forecast: the chart runs edge to edge and carries its own readout */
+  .chartwrap { position:relative; margin:0 -12px; }
+  svg { display:block; }
+  #chart { width:100%; height:auto; touch-action:pan-y; }
+  /* no blur and a thin tint, so a line running behind the values stays visible; a soft halo keeps the text legible */
+  .readout { position:absolute; left:40px; top:6px; max-width:calc(100% - 52px); padding:4px 8px 5px; border-radius:10px; background:color-mix(in srgb, var(--bg) 32%, transparent); text-shadow:0 0 3px var(--bg), 0 0 7px var(--bg); pointer-events:none; font-variant-numeric:tabular-nums; }
+  .readout:empty { display:none; }
+  .readout .when { font-size:12px; color:var(--mute); margin-bottom:2px; }
+  .readout .when b { color:var(--fg); font-weight:600; }
+  .readout .items { display:flex; flex-wrap:wrap; gap:1px 11px; }
+  .readout .it { display:inline-flex; align-items:baseline; gap:4px; font-size:12px; color:var(--mute); }
+  .readout .it .arrow { font-size:13px; }
+  .readout .it i { width:8px; height:8px; border-radius:50%; background:var(--c); align-self:center; }
+  .readout .it b { font-size:15px; font-weight:650; color:var(--fg); }
+  .readout .it small { font-size:11px; }
+  .tablewrap { overflow-x:auto; -webkit-overflow-scrolling:touch; margin:8px -12px 0; padding:0 12px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:center; padding:8px 6px; border-bottom:1px solid var(--line); white-space:nowrap; line-height:1.25; }
   th { color:var(--mute); font-weight:600; font-size:13px; }
-  th:first-child, td:first-child { text-align:left; position:sticky; left:0; background:var(--card); padding-left:2px; }
+  th:first-child, td:first-child { text-align:left; position:sticky; left:0; background:var(--bg); padding-left:2px; }
   td.t b { display:block; font-size:15px; }
   td.t small { color:var(--mute); font-size:12px; }
   td .v { font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
   td .r { color:var(--mute); font-size:12px; font-variant-numeric:tabular-nums; }
   td .none { color:var(--mute); }
   .arrow { display:inline-block; font-size:15px; }
-  .err { color:#c0392b; font-size:13px; }
-  .scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+  /* settings drawer */
+  .scrim { position:fixed; inset:0; background:var(--scrim); opacity:0; pointer-events:none; transition:opacity .2s; z-index:1100; }
+  .scrim.open { opacity:1; pointer-events:auto; }
+  .drawer { position:fixed; top:0; bottom:0; right:0; width:min(88vw, 360px); background:var(--bg); border-left:1px solid var(--line); z-index:1200; transform:translateX(102%); visibility:hidden; transition:transform .22s ease, visibility 0s linear .22s; overflow-y:auto; overscroll-behavior:contain; padding:max(12px, env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom)); }
+  .drawer.open { transform:none; visibility:visible; transition:transform .22s ease; }
+  .dhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+  .dhead h2 { font-size:18px; margin:0; }
+  .drawer h3 { font-size:13px; font-weight:600; color:var(--mute); margin:22px 0 8px; }
+  .field { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:8px 0; color:var(--fg); font-size:15px; }
+  .mrow { display:flex; align-items:center; gap:12px; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; background:transparent; padding:10px 2px; min-height:48px; font-size:15px; }
+  .mrow .sw { width:20px; height:4px; border-radius:2px; background:var(--c); flex:none; }
+  .mrow .mn { flex:1; }
+  .mrow .tog { width:42px; height:26px; border-radius:13px; background:var(--line); position:relative; flex:none; transition:background .15s; }
+  .mrow .tog::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.3); transition:transform .15s; }
+  .mrow[aria-pressed=true] .tog { background:var(--c); }
+  .mrow[aria-pressed=true] .tog::after { transform:translateX(16px); }
+  .locform { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .locname { font-size:15px; }
+  .locname small { color:var(--mute); font-size:12.5px; display:block; font-variant-numeric:tabular-nums; }
+
+  /* map */
+  .mapwrap { position:relative; isolation:isolate; height:clamp(300px, 52vh, 560px); border-radius:12px; overflow:hidden; background:#1a1d24; }
+  #map { position:absolute; inset:0; }
+  .mapwrap canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:450; transition:opacity .15s; }
+  .fab { position:absolute; right:10px; top:10px; z-index:600; width:44px; height:44px; padding:0; display:grid; place-items:center; border-radius:50%; box-shadow:0 1px 6px rgba(0,0,0,.35); }
+  .fab svg { width:22px; height:22px; }
+  .legendbar { position:absolute; left:18px; bottom:64px; width:min(58%, 240px); height:8px; border-radius:4px; z-index:600; margin:0; box-shadow:0 0 0 1.5px rgba(0,0,0,.35); }
+  .legendbar::before { content:''; position:absolute; inset:-22px -10px -22px -10px; background:rgba(8,18,24,.58); border-radius:10px; z-index:-1; }
+  .legendbar span { position:absolute; top:12px; transform:translateX(-50%); font-size:11px; color:#e9f1f5; font-variant-numeric:tabular-nums; }
+  #mapReadout { min-height:40px; margin-top:8px; font-size:15px; }
+  #mapReadout button { margin-left:8px; min-height:36px; padding:4px 12px; font-size:14px; background:var(--fg); color:var(--bg); border-color:var(--fg); font-weight:600; }
+  .when2 { font-weight:600; font-size:15px; margin-top:6px; }
+  .timebox { display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:start; margin-top:6px; }
+  .timecol { min-width:0; }
+  #mapPlay { min-width:48px; min-height:36px; }
+  input[type=range] { -webkit-appearance:none; appearance:none; background:transparent; width:100%; height:36px; margin:0; display:block; }
+  input[type=range]::-webkit-slider-runnable-track { height:6px; border-radius:3px; background:var(--line); }
+  input[type=range]::-moz-range-track { height:6px; border-radius:3px; background:var(--line); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; box-sizing:border-box; width:20px; height:20px; border-radius:50%; background:var(--fg); border:2px solid var(--bg); margin-top:-7px; }
+  input[type=range]::-moz-range-thumb { box-sizing:border-box; width:20px; height:20px; border-radius:50%; background:var(--fg); border:2px solid var(--bg); }
+  .ticks { position:relative; height:30px; margin:-6px 10px 0; }
+  .ticks i { position:absolute; top:0; width:1px; height:6px; background:var(--mute); opacity:.55; }
+  .ticks i.day { height:12px; opacity:1; }
+  .ticks span { position:absolute; top:13px; font-size:11px; color:var(--mute); transform:translateX(-50%); white-space:nowrap; }
+  .ticks span.day { font-weight:700; color:var(--fg); }
+  #mapGraph { width:100%; height:94px; touch-action:pan-y; }
+  .leaflet-control-attribution { font-size:10px !important; }
+  .graphcap { font-size:12px; color:var(--mute); margin-top:2px; min-height:16px; }
+
+  /* ---- browser layout: persistent settings sidebar on the right, bigger chart, map beside its timeline ---- */
+  @media (min-width: 1000px) and (hover: hover) {
+    body { padding-right:290px; }
+    .top { max-width:1180px; padding:18px 24px 6px; }
+    #menuBtn, #drawerClose, .scrim { display:none !important; }
+    h1 { font-size:28px; }
+    .sub { font-size:13.5px; }
+    .tabs button { padding:8px 18px; }
+    main { max-width:1180px; padding:0 24px 28px; }
+    .drawer { transform:none; visibility:visible; width:290px; padding:22px 20px 24px; transition:none; z-index:900; }
+    .dhead { margin-bottom:0; }
+    .chartwrap, .tablewrap { margin-left:0; margin-right:0; }
+    .tablewrap { padding:0; margin-top:14px; }
+    th:first-child, td:first-child { padding-left:4px; }
+    .readout { left:46px; }
+    #viewMap { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:0 24px; align-items:start; }
+    #viewMap > * { grid-column:2; }
+    #viewMap > .mapwrap { grid-column:1; grid-row:1 / span 8; height:min(80vh, 820px); }
+    #mapReadout { margin-top:0; }
+    body .credits { max-width:1180px; margin:0 auto; padding:18px 24px 28px; }
+  }
+  .credits { font-size:12px; color:var(--mute); line-height:1.5; padding:18px 2px 4px; }
+  .credits a { color:inherit; text-decoration:underline; }
   @media (max-width: 560px) {
-    main { padding:12px 8px; }
-    .card { padding:10px 8px; border-radius:10px; }
-    h1, .sub { padding-left:6px; }
-    .chip { padding:6px 11px; font-size:13px; }
-    .readout .items { gap:2px 12px; }
+    #viewMap .mapwrap { margin:0 -12px; border-radius:0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .scrim, .mrow .tog, .mrow .tog::after { transition:none; }
   }
 </style>
 </head>
 <body>
-<main>
-  <h1 id="title">Åsa coast wind</h1>
+<header class="top">
+  <div class="toprow">
+    <h1 id="title">Åsa wind</h1>
+    <nav class="seg tabs" aria-label="Views">
+      <button id="tabF" class="on" aria-current="page">Forecast</button>
+      <button id="tabM">Map</button>
+    </nav>
+    <button class="icon" id="menuBtn" aria-label="Settings" aria-controls="drawer" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
   <div class="sub" id="sub">Loading…</div>
-  <div class="topbar">
-    <span class="seg"><button id="tabF" class="on">Forecast</button><button id="tabM">Map</button></span>
-    <span class="seg"><button id="bKn">kn</button><button id="bMs" class="on">m/s</button></span>
-  </div>
+</header>
 
-  <div id="viewForecast">
-  <div class="card">
-    <div class="row">
-      <label>Horizon
-        <select id="selHorizon">
-          <option value="24">24 h</option>
-          <option value="48">48 h</option>
-          <option value="72">3 days</option>
-          <option value="120">5 days</option>
-          <option value="168">7 days</option>
-          <option value="240">10 days</option>
-        </select>
-      </label>
-      <label>Table step
-        <select id="selStep">
-          <option value="1">1 h</option>
-          <option value="3">3 h</option>
-          <option value="6">6 h</option>
-          <option value="12">12 h</option>
-        </select>
-      </label>
+<main>
+  <section id="viewForecast">
+    <div class="chartwrap">
+      <svg id="chart" viewBox="0 0 860 340" role="img" aria-label="Wind forecast chart"></svg>
+      <div class="readout" id="readout" aria-live="polite"></div>
     </div>
-    <details class="loc" id="loc">
-      <summary id="locSummary">Location</summary>
-      <div class="locform">
-        <input type="text" id="locInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="lat, lon  e.g. 57.325, 12.105" aria-label="Coordinates">
-        <button id="locSet">Set</button>
-        <button id="locGps">My location</button>
-        <button id="locReset">Åsa</button>
-      </div>
-      <div class="msg" id="locMsg">Tip: long-press a spot on the sea in Google Maps or Apple Maps to copy its coordinates. DMI, MET Nordic, SMHI and MET Norway cover the Nordic area only.</div>
-    </details>
-    <div class="legend" id="legend"></div>
-    <div class="readout" id="readout" aria-live="polite"></div>
-    <svg id="chart" viewBox="0 0 860 340" role="img" aria-label="Wind forecast chart"></svg>
     <div class="err" id="errs"></div>
-  </div>
+    <div class="tablewrap"><table id="tbl"></table></div>
+  </section>
 
-  <div class="card scroll">
-    <table id="tbl"></table>
-  </div>
-  </div>
-
-  <div id="viewMap" hidden>
-    <div class="card">
-      <div class="row">
-        <label>Model
-          <select id="mapModel">
-            <option value="dmi">DMI HARMONIE 2 km</option>
-            <option value="nordic">MET Nordic 1 km</option>
-            <option value="ecmwf">ECMWF IFS 0.25°</option>
-          </select>
-        </label>
-        <label>Map
-          <select id="mapBase">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="carto" id="optCarto" hidden>Dark (CARTO key)</option>
-          </select>
-        </label>
-        <button id="mapZoomIn" title="Back to your forecast location">My spot</button>
-      </div>
-      <details class="loc" id="keyBox" hidden>
-        <summary id="keySummary">Dark map key</summary>
-        <div class="locform">
-          <input type="text" id="keyInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your CARTO key" aria-label="CARTO basemap key">
-          <button id="keySave">Save</button>
-          <button id="keyClear">Clear</button>
-        </div>
-        <div class="msg" id="keyMsg"></div>
-      </details>
-      <div class="mapwrap" id="mapwrap">
-        <div id="map"></div>
-        <canvas id="heat"></canvas>
-        <canvas id="parts"></canvas>
-      </div>
+  <section id="viewMap" hidden>
+    <div class="mapwrap" id="mapwrap">
+      <div id="map"></div>
+      <canvas id="heat"></canvas>
+      <canvas id="parts"></canvas>
+      <button class="fab" id="mapZoomIn" aria-label="Back to forecast spot" title="Back to your forecast spot">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/></svg>
+      </button>
       <div class="legendbar" id="mapLegend"></div>
-      <div class="when2" id="mapWhen"></div>
-      <div class="timebox">
-        <button id="mapPlay" aria-label="Play">▶</button>
-        <div class="timecol">
-          <input type="range" id="mapTime" min="0" max="0" value="0" aria-label="Forecast time">
-          <div class="ticks" id="mapTicks"></div>
-          <svg id="mapGraph" role="img" aria-label="Wind speed forecast for the selected spot"></svg>
-        </div>
-      </div>
-      <div class="graphcap" id="mapGraphCap"></div>
-      <div id="mapReadout">Tap anywhere on the map to read the wind there, or to get the forecast for that spot.</div>
-      <div class="msg" id="mapStatus"></div>
-      <div class="msg" id="mapNote"></div>
     </div>
-  </div>
+    <div id="mapReadout">Tap the map to read the wind at a spot.</div>
+    <div class="when2" id="mapWhen"></div>
+    <div class="timebox">
+      <button id="mapPlay" aria-label="Play">▶</button>
+      <div class="timecol">
+        <input type="range" id="mapTime" min="0" max="0" value="0" aria-label="Forecast time">
+        <div class="ticks" id="mapTicks"></div>
+        <svg id="mapGraph" role="img" aria-label="Wind speed forecast for the selected spot"></svg>
+      </div>
+    </div>
+    <div class="graphcap" id="mapGraphCap"></div>
+    <div class="msg" id="mapStatus"></div>
+    <div class="msg" id="mapNote"></div>
+  </section>
+
   <footer class="credits">
     <b>Data and credits.</b>
     Forecasts: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a> (DMI HARMONIE, MET Nordic and ECMWF IFS, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>),
@@ -204,9 +208,84 @@
     <a href="https://developer.yr.no/doc/License/" target="_blank" rel="noopener">MET Norway</a> (CC BY 4.0).
     Values are processed: lines are smoothed, the map wind is interpolated between model grid points, and heights are 10 m.
     Map: <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>, data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.
+    Place names: <a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon</a> / OpenStreetMap.
     A hobby project. Do not rely on it for safety decisions at sea.
   </footer>
 </main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Settings">
+  <div class="dhead">
+    <h2>Settings</h2>
+    <button class="icon" id="drawerClose" aria-label="Close settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <h3>Units</h3>
+  <span class="seg"><button id="bKn">kn</button><button id="bMs" class="on">m/s</button></span>
+
+  <div id="secForecast">
+    <h3>Forecasts on the chart</h3>
+    <div id="legend"></div>
+    <h3>Chart and table</h3>
+    <label class="field">Horizon
+      <select id="selHorizon">
+        <option value="24">24 h</option>
+        <option value="48">48 h</option>
+        <option value="72">3 days</option>
+        <option value="120">5 days</option>
+        <option value="168">7 days</option>
+        <option value="240">10 days</option>
+      </select>
+    </label>
+    <label class="field">Table step
+      <select id="selStep">
+        <option value="1">1 h</option>
+        <option value="3">3 h</option>
+        <option value="6">6 h</option>
+        <option value="12">12 h</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="secMap" hidden>
+    <h3>Map</h3>
+    <label class="field">Wind model
+      <select id="mapModel">
+        <option value="dmi">DMI HARMONIE 2 km</option>
+        <option value="nordic">MET Nordic 1 km</option>
+        <option value="ecmwf">ECMWF IFS 0.25°</option>
+      </select>
+    </label>
+    <label class="field">Basemap
+      <select id="mapBase">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="carto" id="optCarto" hidden>Dark (CARTO key)</option>
+      </select>
+    </label>
+    <div id="keyBox" hidden>
+      <div class="msg" id="keySummary"></div>
+      <div class="locform">
+        <input type="text" id="keyInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste your CARTO key" aria-label="CARTO basemap key">
+        <button id="keySave">Save</button>
+        <button id="keyClear">Clear</button>
+      </div>
+      <div class="msg" id="keyMsg"></div>
+    </div>
+  </div>
+
+  <h3>Location</h3>
+  <div class="locname" id="locSummary"></div>
+  <div class="locform">
+    <input type="text" id="locInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="lat, lon  e.g. 57.325, 12.105" aria-label="Coordinates">
+    <button id="locSet">Set</button>
+    <button id="locGps">My location</button>
+    <button id="locReset">Åsa</button>
+  </div>
+  <div class="msg" id="locMsg">Tip: long-press a spot on the sea in Google Maps or Apple Maps to copy its coordinates, or tap the map and choose Forecast here. DMI, MET Nordic, SMHI and MET Norway cover the Nordic area only.</div>
+</aside>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.1/dist/maplibre-gl.js"></script>
@@ -259,8 +338,8 @@ function mockSeries(model, lat, lon, n = 240) {
   const t0 = Math.floor(Date.now() / 3600e3) * 3600e3, seed = (model.length * 1.7) % 3, time = [], speed = [], gust = [], dir = [], lull = [];
   for (let i = 0; i < n; i++) {
     time.push(t0 + i * 3600e3);
-    const geo = Math.sin((lat * 13 + lon * 7)) * 0.8; // small spatial variation so the map field looks alive
-    const front = 9 * Math.exp(-(((i - 34) / 9) ** 2)) + 12 * Math.exp(-(((i - 100) / 12) ** 2)); // two blows
+    const geo = Math.sin((lat * 13 + lon * 7)) * 0.8 + (lat - 57.3) * 1.5; // small spatial variation so the map field looks alive // small spatial variation so the map field looks alive
+    const front = 9 * Math.exp(-(((i - 34) / 9) ** 2)) + 26 * Math.exp(-(((i - 62) / 7) ** 2)) + 12 * Math.exp(-(((i - 120) / 12) ** 2)); // three blows, the middle one a gale near 30 m/s
     const v = Math.max(0.3, 4.5 + 2.5 * Math.sin(i / 7 + seed) + front + geo + seed * 0.4 + 0.9 * Math.sin(i * 2.3 + seed * 5) + 0.6 * Math.sin(i * 4.1));
     speed.push(+v.toFixed(1)); gust.push(+(v * (1.3 + 0.1 * Math.sin(i / 3))).toFixed(1)); lull.push(+(v * 0.7).toFixed(1));
     dir.push(Math.round((210 + i * 1.5 + 40 * Math.sin(i / 20) + lon * 5 + seed * 10) % 360));
@@ -349,7 +428,7 @@ async function load() {
   }
   if (my !== loadId) return; // the location changed while this request was running
   DATA = data;
-  $('sub').textContent = `${coordText(DATA.lat, DATA.lon)} · fetched ${fetchedFmt.format(new Date(DATA.fetchedAt))} · 10 m wind${MOCK ? ' · MOCK DATA' : ''}`;
+  $('sub').textContent = `${coordText(DATA.lat, DATA.lon)} · updated ${fetchedFmt.format(new Date(DATA.fetchedAt))}${MOCK ? ' · mock data' : ''}`;
   const errs = Object.entries(DATA.errors || {}).map(([k, v]) => `${k}: ${v}`);
   $('errs').textContent = errs.length ? 'Unavailable → ' + errs.join(' | ') : '';
   render();
@@ -422,7 +501,7 @@ function render() {
   const allNames = Object.keys(W);
   const names = allNames.filter((n) => !hidden.has(n));
   $('legend').innerHTML = allNames.map((n) =>
-    `<button class="chip${hidden.has(n) ? ' off' : ''}" data-n="${n}" style="--c:${colorOf(n)}" aria-pressed="${!hidden.has(n)}"><i></i><span>${n}</span></button>`).join('');
+    `<button class="mrow" data-n="${n}" style="--c:${colorOf(n)}" aria-pressed="${!hidden.has(n)}"><i class="sw"></i><span class="mn">${n}</span><span class="tog"></span></button>`).join('');
   const svg = $('chart');
   const values = names.flatMap((n) => W[n].flatMap((p) => [p.speed, p.gust])).filter((v) => v != null);
   if (!names.length || !values.length) { svg.innerHTML = ''; $('tbl').innerHTML = ''; $('readout').innerHTML = ''; VIEW = null; return; }
@@ -431,12 +510,15 @@ function render() {
   const w = Math.max(300, Math.round(svg.getBoundingClientRect().width || 860));
   const narrow = w < 560;
   const fs = narrow ? 13 : 12, lw = narrow ? 3 : 2.5;
-  const L = narrow ? 32 : 38, R = 10, T = 12, B = 32, h = narrow ? 320 : 340;
+  const L = narrow ? 32 : 38, R = 10, T = 12, B = 32, h = w >= 820 ? 420 : narrow ? 330 : 360;
   svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   const t0 = Date.now() - 3600e3, t1 = Date.now() + horizon * 3600e3;
   const mx = Math.max(...values);
   const gridStep = unit === 'kn' ? (mx <= 30 ? 5 : 10) : (mx <= 14 ? 2 : 5);
-  const vmax = Math.ceil(mx / gridStep) * gridStep + gridStep;
+  // keep the top of the plot free for the readout that floats over it
+  const rows = Math.max(1, Math.ceil(names.length * (narrow ? 104 : 170) / Math.max(120, w - L - 28)));
+  const free = Math.min(0.5, (26 + rows * 22) / (h - T - B));
+  const vmax = Math.ceil(mx / (1 - free) / gridStep) * gridStep;
   const x = (t) => L + (t - t0) / (t1 - t0) * (w - L - R);
   const y = (v) => h - B - v / vmax * (h - T - B);
 
@@ -505,15 +587,15 @@ function showAt(t) {
   for (const n of names) {
     const p = nearest(W[n], t, 90 * 60e3);
     const c = colorOf(n);
-    if (!p) { items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <small>–</small></span>`; continue; }
+    if (!p) { items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <b>–</b></span>`; continue; }
     g += `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.sm != null ? p.sm : p.speed).toFixed(1)}" r="${lw + 1.5}" fill="${c}" style="stroke:var(--card)" stroke-width="2"/>`;
     const arrow = p.dir == null ? '' : `<span class="arrow" style="transform:rotate(${p.dir + 180}deg)">↑</span> `;
-    const range = p.gust == null ? '' : p.lull != null ? `${fmt(p.lull)}–${fmt(p.gust)}` : `gust ${fmt(p.gust)}`;
-    items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <b>${arrow}${fmt(p.speed)}</b><small>${range}</small></span>`;
+    const range = VIEW.w < 560 || p.gust == null ? '' : p.lull != null ? `${fmt(p.lull)}–${fmt(p.gust)}` : `gust ${fmt(p.gust)}`;
+    items += `<span class="it" style="--c:${c}"><i></i>${SHORT[n] || n} <b>${arrow}${fmt(p.speed)}</b>${range ? `<small>${range}</small>` : ''}</span>`;
   }
   const isNow = Math.abs(t - Date.now()) < 30 * 60e3;
   $('hover').innerHTML = g;
-  $('readout').innerHTML = `<div class="when">${hourFmt.format(new Date(t))} <span>${isNow ? '(now) ' : ''}· mean, lull–gust, ${unit === 'kn' ? 'kn' : 'm/s'}</span></div><div class="items">${items}</div>`;
+  $('readout').innerHTML = `<div class="when"><b>${hourFmt.format(new Date(t))}</b>${isNow ? ' · now' : ''} · ${unit === 'kn' ? 'kn' : 'm/s'}</div><div class="items">${items}</div>`;
 }
 function tFromEvent(e) {
   const r = $('chart').getBoundingClientRect();
@@ -577,9 +659,43 @@ function parseCoords(s) {
   return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 ? { lat, lon } : null;
 }
 function updateLocUi() {
-  $('title').textContent = `${LOC.name} wind`;
-  $('locSummary').textContent = `Location: ${LOC.name} (${LOC.lat.toFixed(3)}, ${LOC.lon.toFixed(3)})`;
+  const title = `${LOC.name} wind`;
+  $('title').textContent = title; document.title = title;
+  $('locSummary').innerHTML = `${LOC.name}<small>${coordText(LOC.lat, LOC.lon)}</small>`;
   $('locInput').value = `${LOC.lat}, ${LOC.lon}`;
+}
+// Name of the nearest place, from Photon (OpenStreetMap data): the closest village, district or town within reach.
+const GEO = recall('geoNames', {});
+const GENERIC_NAMES = new Set(['Map point', 'My location', 'Custom location']);
+const geoKey = (lat, lon) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
+const rad = (d) => d * Math.PI / 180;
+const distKm = (a, b, c, d) => 6371 * 2 * Math.asin(Math.sqrt(Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2));
+async function placeName(lat, lon) {
+  if (MOCK) return 'Mockholmen';
+  const k = geoKey(lat, lon);
+  if (GEO[k]) return GEO[k];
+  for (const radius of [12, 45]) {
+    try {
+      const r = await fetch(`https://photon.komoot.io/reverse?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&radius=${radius}&limit=5&lang=default&layer=locality&layer=district&layer=city`);
+      if (!r.ok) return null;
+      const feats = ((await r.json()).features || []).filter((f) => f.properties && f.properties.name && f.geometry);
+      feats.sort((p, q) => distKm(lat, lon, p.geometry.coordinates[1], p.geometry.coordinates[0]) - distKm(lat, lon, q.geometry.coordinates[1], q.geometry.coordinates[0]));
+      if (feats.length) {
+        GEO[k] = feats[0].properties.name;
+        const keys = Object.keys(GEO); if (keys.length > 60) delete GEO[keys[0]];
+        store('geoNames', GEO);
+        return GEO[k];
+      }
+    } catch (e) { return null; }
+  }
+  return null;
+}
+function resolveName() {
+  if (!GENERIC_NAMES.has(LOC.name)) return;
+  const at = `${LOC.lat},${LOC.lon}`;
+  placeName(LOC.lat, LOC.lon).then((n) => {
+    if (n && at === `${LOC.lat},${LOC.lon}` && GENERIC_NAMES.has(LOC.name)) { LOC.name = n; store('loc', LOC); updateLocUi(); }
+  });
 }
 function setLocation(lat, lon, name) {
   LOC = { lat, lon, name }; LAT = lat; LON = lon; store('loc', LOC);
@@ -587,6 +703,7 @@ function setLocation(lat, lon, name) {
   $('chart').innerHTML = ''; $('tbl').innerHTML = ''; $('readout').innerHTML = ''; $('errs').textContent = '';
   $('sub').textContent = 'Loading…';
   updateLocUi();
+  resolveName();
   load();
 }
 function applyInput() {
@@ -607,12 +724,13 @@ $('locGps').onclick = () => {
     { timeout: 10000 });
 };
 updateLocUi();
+resolveName();
 setBtn($('bKn'), $('bMs'), unit === 'kn');
 $('selHorizon').value = String(horizon);
 $('selStep').value = String(step);
 
 $('legend').onclick = (e) => {
-  const b = e.target.closest('.chip');
+  const b = e.target.closest('.mrow');
   if (!b || !DATA) return;
   const n = b.dataset.n;
   if (hidden.has(n)) hidden.delete(n);
@@ -646,9 +764,9 @@ const PALETTE = (() => {
 const palIdx = (s) => Math.min(VMAX * 2, Math.max(0, Math.round(s * 2)));
 const PAL_CSS = PALETTE.map((c) => `rgb(${c[0]},${c[1]},${c[2]})`);
 
-const MAP = { map: null, ready: false, model: recall('mapModel', 'dmi'), fitKey: '', loadedViewKey: '', reloadTimer: 0, base: recall('mapBase', 'dark'),
+const MAP = { map: null, ready: false, model: recall('mapModel', 'nordic'), fitKey: '', loadedViewKey: '', reloadTimer: 0, base: recall('mapBase', 'dark'),
   data: null, grid: null, field: null, ti: 0, key: '', reqId: 0, parts: [], raf: 0, playing: null, baseId: 0, cache: new Map(), layers: {}, rect: null, dot: null, pick: null, pickLL: null, size: [0, 0] };
-if (!MAP_MODELS[MAP.model]) MAP.model = 'dmi';
+if (!MAP_MODELS[MAP.model]) MAP.model = 'nordic';
 const REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---- basemap ----
@@ -809,7 +927,7 @@ async function loadMapData() {
     if (MAP.ti < first || MAP.ti > last) MAP.ti = first;
     const sl = $('mapTime'); sl.min = first; sl.max = last; sl.value = MAP.ti;
     $('mapStatus').textContent = '';
-    $('mapNote').textContent = `${cfg.label}. Wind is sampled about every ${g.spacingKm < 10 ? g.spacingKm.toFixed(1) : Math.round(g.spacingKm)} km across the map and smoothed between points. The grid follows the map when you pan or zoom.`;
+    $('mapNote').textContent = `${cfg.label} · about ${g.spacingKm < 10 ? g.spacingKm.toFixed(1) : Math.round(g.spacingKm)} km between wind points`;
     drawMarkers();
     sizeCanvases();
     renderTicks(); renderMapGraph();
@@ -889,7 +1007,7 @@ function rebuildField() {
   const [w, h] = MAP.size; if (!w || !h) return;
   const cols = Math.ceil(w / CELL) + 1, rows = Math.ceil(h / CELL) + 1;
   const U = new Float32Array(cols * rows), V = new Float32Array(cols * rows), S = new Float32Array(cols * rows);
-  const img = new ImageData(cols, rows), alpha = activeBase() === 'light' ? 110 : 78;
+  const img = new ImageData(cols, rows), alpha = activeBase() === 'light' ? 110 : 52;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const ll = MAP.map.containerPointToLatLng([c * CELL, r * CELL]);
     const s = sampleGrid(ll.lat, ll.lng), i = r * cols + c;
@@ -939,7 +1057,7 @@ function frame() {
   ctx.globalCompositeOperation = 'destination-out';
   ctx.fillStyle = 'rgba(0,0,0,0.09)'; ctx.fillRect(0, 0, w, h);
   ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = activeBase() === 'light' ? 0.88 : 0.62; // fainter on the dark map, stronger on the light one
+  ctx.globalAlpha = activeBase() === 'light' ? 0.88 : 0.5; // fainter on the dark map, stronger on the light one
   ctx.lineWidth = 1.7; ctx.lineCap = 'round';
   const K = 0.22; // pixels per frame for each m/s of wind
   for (const p of MAP.parts) {
@@ -963,7 +1081,7 @@ function renderLegend() {
   bar.innerHTML = ticks.map((v) => `<span style="left:${(Math.min(VMAX, unit === 'kn' ? v / 1.94384 : v) / VMAX * 100).toFixed(1)}%">${v}</span>`).join('') +
     `<span style="left:100%;transform:translateX(-100%);top:-18px">${unit === 'kn' ? 'kn' : 'm/s'}</span>`;
 }
-function mapUnits() { if (MAP.ready) { renderLegend(); renderMapGraph(); $('mapReadout').textContent = 'Tap anywhere on the map to read the wind there, or to get the forecast for that spot.'; } }
+function mapUnits() { if (MAP.ready) { renderLegend(); renderMapGraph(); $('mapReadout').textContent = 'Tap the map to read the wind at a spot.'; } }
 
 // Tapping anywhere selects that point. "Forecast here" works even where there is no wind data on the map.
 function onMapClick(e) {
@@ -1043,6 +1161,7 @@ function graphSeries() {
 
 function renderMapGraph() {
   const svg = $('mapGraph'), d = MAP.data;
+  GR.h = matchMedia('(min-width: 1000px) and (hover: hover)').matches ? 130 : 94; svg.style.height = GR.h + 'px';
   if (!d) { svg.innerHTML = ''; return; }
   const ser = graphSeries(); GR.ser = ser;
   const w = Math.max(200, Math.round(svg.getBoundingClientRect().width || 300)), h = GR.h;
@@ -1163,6 +1282,9 @@ function switchTab(t) {
   $('viewMap').hidden = t !== 'map';
   $('tabF').classList.toggle('on', t === 'forecast');
   $('tabM').classList.toggle('on', t === 'map');
+  $('tabF').toggleAttribute('aria-current', t === 'forecast'); $('tabM').toggleAttribute('aria-current', t === 'map');
+  $('secForecast').hidden = t !== 'forecast'; $('secMap').hidden = t !== 'map';
+  closeDrawer(); window.scrollTo(0, 0);
   if (t === 'map') {
     if (!initMap()) return;
     MAP.map.invalidateSize(); sizeCanvases();
@@ -1175,6 +1297,28 @@ function switchTab(t) {
     render();
   }
 }
+// ---- settings drawer ----
+function openDrawer() {
+  $('drawer').classList.add('open'); $('scrim').classList.add('open'); document.body.classList.add('noscroll');
+  $('menuBtn').setAttribute('aria-expanded', 'true');
+  setTimeout(() => $('drawerClose').focus(), 30);
+}
+function closeDrawer() {
+  if (!$('drawer').classList.contains('open')) return;
+  $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); document.body.classList.remove('noscroll');
+  $('menuBtn').setAttribute('aria-expanded', 'false');
+  $('menuBtn').focus();
+}
+$('menuBtn').onclick = openDrawer;
+$('drawerClose').onclick = closeDrawer;
+$('scrim').onclick = closeDrawer;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+(() => { // swipe right on the drawer to close it
+  let x0 = null;
+  $('drawer').addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  $('drawer').addEventListener('touchend', (e) => { if (x0 != null && e.changedTouches[0].clientX - x0 > 70) closeDrawer(); x0 = null; }, { passive: true });
+})();
+
 $('tabF').onclick = () => switchTab('forecast');
 $('tabM').onclick = () => switchTab('map');
 switchTab(recall('tab', 'forecast') === 'map' ? 'map' : 'forecast');
