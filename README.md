@@ -1,72 +1,39 @@
-# Pray for Wind
+# windapp
 
-Pray for Wind is a lightweight wind forecast app for checking when the wind is strong enough to be worth getting outside, sailing, or just enjoying the coast. It is built around a simple idea: show local wind conditions clearly, fast, and without needing a backend or sign-in.
-
-The project started as a personal weather tool for Åsa on the Swedish west coast, but it also supports custom coordinates anywhere in the covered forecast areas.
+Wind forecast app for checking local wind conditions; MIT licensed.
 
 ## What it does
 
 - Shows hourly and multi-day wind forecasts
-- Compares multiple forecast sources in one view
-- Lets you set a custom location by latitude/longitude
-- Displays a map view with animated wind field and forecast time slider
-- Supports both metric units and knots
-- Works as a client-side web app: the browser fetches the weather data directly
-- Includes an optional CARTO basemap key for a darker map style
-
-## Features
-
-- Forecast chart with wind speed, gusts, and direction
-- Table view for nearby forecast times at a chosen step size
-- Map view with model selection (DMI, MET Nordic, ECMWF)
-- Animated wind overlay over the map
-- Dark/light map styles and custom location selection
-- No server-side data storage or account setup required
-
-## Project purpose
-
-This app is designed to answer a simple question: "Is it windy enough that it matters right now?"
-
-It is intentionally kept focused and easy to use, with a clean interface and minimal setup. The project is a practical hobby app rather than a full weather platform.
+- Compares forecasts from multiple weather sources
+- Lets you choose a location using coordinates or your device location
+- Provides forecast charts, a table, and an interactive wind map
+- Displays wind speed in meters per second or knots
 
 ## Run locally
 
-Because the app is static, you can run it with any simple local web server.
-
-1. Clone the repository
-2. Open a terminal in the project folder
-3. Start a local server:
+This is a static web app. Clone the repository, open a terminal in the project folder, and start a local web server:
 
 ```bash
 python3 -m http.server 8000
 ```
 
-4. Open your browser at:
+Then visit [http://localhost:8000](http://localhost:8000).
 
-```text
-http://localhost:8000
-```
+## Optional map configuration
 
-You can also open `index.html` directly in a browser, though a local web server is recommended for smoother behavior and consistent asset loading.
-
-## Optional configuration
-
-A sample configuration file is included as `config.example.js`.
+To use a CARTO basemap key, copy the example configuration and add your key:
 
 ```bash
 cp config.example.js config.js
 ```
 
-Then edit `config.js` to add your CARTO basemap key if you want to use the optional dark map style. The file is gitignored and intended to stay private.
+Edit `config.js` with your key. This file is gitignored and stays local to your copy of the project. The app also offers map styles that do not require a key.
 
-## Data sources
+## Data and safety
 
-This project uses public forecast data from weather services such as Open-Meteo, DMI, MET Norway, ECMWF, and SMHI. The app processes and visualizes those values on the client side.
+Forecast data is fetched directly by the browser from the weather services listed in the app. Forecasts can be incomplete or unavailable for some locations. This hobby app is not a safety-critical weather service; rely on official forecasts for decisions at sea or in hazardous conditions.
 
 ## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
-
-## Notes
-
-This project is a personal hobby tool and should not be treated as a safety-critical weather system. It is useful for planning and situational awareness, but operational decisions at sea or in other hazardous conditions should rely on official weather guidance and local forecasts.
+MIT. See [LICENSE](LICENSE).
