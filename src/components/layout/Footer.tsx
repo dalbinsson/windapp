@@ -1,4 +1,4 @@
-function Footer() {
+export const Footer = () => {
   return (
     <footer className="credits">
       <b>Data and credits.</b>
@@ -41,6 +41,4 @@ function Footer() {
       / OpenStreetMap. A hobby project. Do not rely on it for safety decisions at sea.
     </footer>
   );
-}
-
-export default Footer;
+};

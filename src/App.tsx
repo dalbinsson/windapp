@@ -1,91 +1,77 @@
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
-import { useAppStore } from './stores/appStore';
-import { fetchWeatherData } from './api/weatherApi';
-import Header from './components/Header';
-import ForecastView from './components/ForecastView';
-import MapView from './components/MapView';
-import MagnusSolution from './components/MagnusSolution';
-import SettingsDrawer from './components/SettingsDrawer';
-import Footer from './components/Footer';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { WeatherPage } from './pages/WeatherPage';
+import { MagnusPage } from './pages/MagnusPage';
+import { Header, SettingsDrawer, Footer } from './components/layout';
 import './styles/app.css';
 
-function TabNavigation() {
+const SolutionTabs = () => {
   const location = useLocation();
+  const basename = window.location.pathname.split('/').filter(Boolean)[0] === 'windapp' ? '/windapp' : '';
 
   return (
     <nav className="tab-navigation">
-      <Link 
-        to="/" 
-        className={`tab-link ${location.pathname === '/' ? 'active' : ''}`}
+      <a
+        href={`${basename}/`}
+        className={`tab-link ${location.pathname === '/' || location.pathname === `${basename}/` ? 'active' : ''}`}
       >
         Weather Solution
-      </Link>
-      <Link 
-        to="/magnus" 
-        className={`tab-link ${location.pathname === '/magnus' ? 'active' : ''}`}
+      </a>
+      <a
+        href={`${basename}/magnus`}
+        className={`tab-link ${location.pathname === '/magnus' || location.pathname === `${basename}/magnus` ? 'active' : ''}`}
       >
         Magnus Solution
-      </Link>
+      </a>
     </nav>
   );
-}
+};
 
-function WeatherContent() {
-  const {
-    data,
-    loading,
-    setData,
-    setLoading,
-    activeView,
-  } = useAppStore();
+const ViewTabs = () => {
+  const location = useLocation();
+  const isWeatherPage = location.pathname === '/' || location.pathname.endsWith('/');
+  const currentHash = window.location.hash.slice(1) || 'forecast';
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const weatherData = await fetchWeatherData(57.325, 12.105);
-        setData(weatherData);
-      } catch (error) {
-        console.error('Failed to load weather data:', error);
-        setData({
-          series: {},
-          errors: { 'Load Error': String(error) },
-          location: { lat: 57.325, lon: 12.105 },
-          loadedAt: Date.now(),
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadData();
-  }, [setData, setLoading]);
+  if (!isWeatherPage) return null;
 
   return (
-    <main>
-      {activeView === 'forecast' ? (
-        <ForecastView data={data} loading={loading} />
-      ) : (
-        <MapView />
-      )}
-    </main>
+    <nav className="tab-navigation">
+      <a 
+        href={`${window.location.pathname}#forecast`} 
+        className={`tab-link ${currentHash === 'forecast' ? 'active' : ''}`}
+      >
+        Forecast
+      </a>
+      <a 
+        href={`${window.location.pathname}#map`} 
+        className={`tab-link ${currentHash === 'map' ? 'active' : ''}`}
+      >
+        Map
+      </a>
+    </nav>
   );
-}
+};
 
-function App() {
+const AppContent = () => {
   return (
-    <Router basename="/windapp">
+    <>
       <Header />
-      <TabNavigation />
+      <SolutionTabs />
+      <ViewTabs />
       <Routes>
-        <Route path="/" element={<WeatherContent />} />
-        <Route path="/magnus" element={<MagnusSolution />} />
+        <Route path="/" element={<WeatherPage />} />
+        <Route path="/magnus" element={<MagnusPage />} />
       </Routes>
       <SettingsDrawer />
       <Footer />
+    </>
+  );
+};
+
+export const App = () => {
+  const basename = window.location.hostname.includes('github.io') ? '/windapp' : '/';
+  return (
+    <Router basename={basename}>
+      <AppContent />
     </Router>
   );
-}
-
-export default App;
+};

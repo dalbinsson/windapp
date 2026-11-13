@@ -1,27 +1,8 @@
-export interface ForecastPoint {
-  time: number;
-  speed: number;
-  gust: number;
-  dir: number;
-  lull?: number;
-}
+// Re-export domain models from domain layer
+export type { WeatherData, ForecastPoint, ForecastSeries, Location } from './domain/weather/models';
 
-export interface ForecastSeries {
-  name: string;
-  points: ForecastPoint[];
-  color: string;
-}
-
-export interface WeatherData {
-  series: Record<string, ForecastSeries>;
-  errors: Record<string, string>;
-  location: {
-    lat: number;
-    lon: number;
-    name?: string;
-  };
-  loadedAt: number;
-}
+// Re-export config
+export { config } from './config';
 
 export type Units = 'ms' | 'kn';
 

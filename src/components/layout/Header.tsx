@@ -1,30 +1,12 @@
-import { useAppStore } from '../stores/appStore';
+import { useAppStore } from '@/stores/appStore';
 
-function Header() {
-  const { activeView, setActiveView, drawerOpen, setDrawerOpen } = useAppStore();
+export const Header = () => {
+  const { drawerOpen, setDrawerOpen } = useAppStore();
 
   return (
     <header className="top">
       <div className="toprow">
         <h1 id="title">Åsa wind</h1>
-        <nav className="seg tabs" aria-label="Views">
-          <button
-            id="tabF"
-            className={activeView === 'forecast' ? 'on' : ''}
-            aria-current={activeView === 'forecast' ? 'page' : undefined}
-            onClick={() => setActiveView('forecast')}
-          >
-            Forecast
-          </button>
-          <button
-            id="tabM"
-            className={activeView === 'map' ? 'on' : ''}
-            aria-current={activeView === 'map' ? 'page' : undefined}
-            onClick={() => setActiveView('map')}
-          >
-            Map
-          </button>
-        </nav>
         <button
           className="icon"
           id="menuBtn"
@@ -51,6 +33,4 @@ function Header() {
       </div>
     </header>
   );
-}
-
-export default Header;
+};

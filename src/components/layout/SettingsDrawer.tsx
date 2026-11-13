@@ -1,10 +1,25 @@
-import { useAppStore } from '../stores/appStore';
+import { useAppStore } from '@/stores/appStore';
 
-function SettingsDrawer() {
-  const { drawerOpen, setDrawerOpen, settings, updateSettings, mockMode, setMockMode } = useAppStore();
+export const SettingsDrawer = () => {
+  const { drawerOpen, setDrawerOpen, settings, updateSettings, mockMode, setMockMode, data } = useAppStore();
 
   const handleMockModeToggle = () => {
     setMockMode(!mockMode);
+  };
+
+  const handleForecastToggle = (name: string) => {
+    const newHidden = new Set(settings.hiddenForecasts);
+
+    if (newHidden.has(name)) {
+      newHidden.delete(name);
+    } else {
+      const visibleCount = (data?.series ? Object.keys(data.series).length : 0) - newHidden.size;
+      if (visibleCount > 1) {
+        newHidden.add(name);
+      }
+    }
+
+    updateSettings({ hiddenForecasts: newHidden });
   };
 
   return (
@@ -38,16 +53,16 @@ function SettingsDrawer() {
         <h3>API Mode</h3>
         <label className="field">
           <span>Mock Data</span>
-          <input 
-            type="checkbox" 
-            checked={mockMode} 
+          <input
+            type="checkbox"
+            checked={mockMode}
             onChange={handleMockModeToggle}
             style={{ cursor: 'pointer' }}
           />
         </label>
         <p className="msg">
-          {mockMode 
-            ? 'Using simulated data for testing' 
+          {mockMode
+            ? 'Using simulated data for testing'
             : 'Using live data from weather APIs'}
         </p>
 
@@ -71,7 +86,36 @@ function SettingsDrawer() {
 
         <div id="secForecast">
           <h3>Forecasts on the chart</h3>
-          <div id="legend"></div>
+          <div id="legend">
+            {data?.series && Object.entries(data.series).map(([name]) => {
+              const isHidden = settings.hiddenForecasts.has(name);
+              const COLORS: Record<string, string> = {
+                'DMI HARMONIE 2 km': '#2a7de1',
+                'MET Nordic 1 km': '#e8590c',
+                'ECMWF IFS 0.25°': '#9c36b5',
+                'SMHI SNOW': '#2f9e44',
+                'MET Norway': '#0c8599',
+              };
+              const color = COLORS[name] || '#888';
+
+              return (
+                <button
+                  key={name}
+                  className="mrow"
+                  style={{
+                    '--c': color,
+                  } as React.CSSProperties}
+                  aria-pressed={!isHidden}
+                  onClick={() => handleForecastToggle(name)}
+                >
+                  <i className="sw"></i>
+                  <span className="mn">{name}</span>
+                  <span className="tog"></span>
+                </button>
+              );
+            })}
+          </div>
+
           <h3>Chart and table</h3>
           <label className="field">
             Horizon
@@ -143,6 +187,4 @@ function SettingsDrawer() {
       </aside>
     </>
   );
-}
-
-export default SettingsDrawer;
+};
